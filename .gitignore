@@ -1,0 +1,15 @@
+build/*
+log/*
+dist/*
+out/*
+log/*
+.idea/*
+gwt-unitCache/*
+war/*
+*.iml
+*.hprof
+*hs_err_pid*
+*~
+peergos/crypto/RootCertificate.java
+peergos/crypto/DirectoryCertificates.java
+peergos/crypto/CoreCertificates.java
