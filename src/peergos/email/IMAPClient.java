@@ -61,7 +61,7 @@ public class IMAPClient {
             throw new MessagingException("Unable to retrieve emails for user: " + username);
         }
     }
-    public void close(Store store, Folder folder) {
+    private void close(Store store, Folder folder) {
         try {
             if (store != null && store.isConnected()) {
                 store.close();

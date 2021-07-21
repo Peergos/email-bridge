@@ -3,8 +3,8 @@ package peergos.email;
 import org.simplejavamail.api.email.*;
 import org.simplejavamail.converter.internal.mimemessage.MimeMessageParser;
 import org.simplejavamail.email.EmailBuilder;
-import peergos.shared.email.Attachment;
 import peergos.shared.email.EmailMessage;
+import peergos.shared.util.Pair;
 
 import javax.activation.DataSource;
 import javax.mail.Message;
@@ -16,11 +16,9 @@ import java.time.ZoneId;
 import java.util.*;
 import java.util.stream.Collectors;
 
-import static org.simplejavamail.api.email.CalendarMethod.CANCEL;
-
 public class EmailConverter {
 
-    public static EmailMessage parseMail(MimeMessage message) {
+    public static Pair<EmailMessage, List<RawAttachment>> parseMail(MimeMessage message) {
 
         MimeMessageParser messageParser = new MimeMessageParser();
         MimeMessageParser.ParsedMimeMessageComponents components = messageParser.parseMimeMessage(message);
@@ -35,7 +33,7 @@ public class EmailConverter {
         Date sentDate = components.getSentDate();
         LocalDateTime created = LocalDateTime.ofInstant(sentDate.toInstant(), ZoneId.of("UTC"));
 
-        List<Attachment> attachments = new ArrayList<>();
+        List<RawAttachment> rawAttachmentList = new ArrayList<>();
         for(Map.Entry<String, DataSource> attachment : components.getAttachmentList().entrySet()) {
             DataSource source = attachment.getValue();
             try {
@@ -43,7 +41,7 @@ public class EmailConverter {
                 String name = source.getName();
                 String resName = attachment.getKey();
                 byte[] data = readResource(source.getInputStream());
-                attachments.add(new Attachment(name, data.length, type, data));
+                rawAttachmentList.add(new RawAttachment(name, data.length, type, data));
             } catch(Exception e) {
                 e.printStackTrace();
             }
@@ -57,57 +55,11 @@ public class EmailConverter {
                 calendarText = addCancelToIcalText(calendarText);
             }
         }
-        return new EmailMessage(id, from, subject, created,
+        EmailMessage emailMsg = new EmailMessage(id, from, subject, created,
                 toAddrs, ccAddrs, Collections.emptyList(),
-                plainText, true, false, attachments, calendarText,
+                plainText, true, false, Collections.emptyList(), calendarText,
                 Optional.empty(), Optional.empty());
-    }
-    public static EmailMessage toEmailMessage(Email email) {
-        List<Attachment> attachments = new ArrayList<>();
-        for(AttachmentResource res : email.getAttachments()) {
-            DataSource source = res.getDataSource();
-            try {
-                String type = source.getContentType();
-                String name = source.getName();
-                String resName = res.getName();
-                byte[] data = readResource(source.getInputStream());
-                Attachment attachment = new Attachment(name, data.length, type, data);
-                attachments.add(attachment);
-            } catch(Exception e) {
-                e.printStackTrace();
-            }
-        }
-        String calendarText = email.getCalendarText();
-        if (calendarText == null) {
-            calendarText = "";
-        } else {
-            CalendarMethod calMethod = email.getCalendarMethod();
-            if (calMethod == CANCEL) {
-                calendarText = addCancelToIcalText(calendarText);
-            }
-        }
-
-        Recipient from = email.getFromRecipient();
-        String id = email.getId();
-        String plainText = email.getPlainText();
-        Date sentDate = email.getSentDate();
-        LocalDateTime created = LocalDateTime.ofInstant(sentDate.toInstant(), ZoneId.of("UTC"));
-
-        String subject = email.getSubject();
-        List<Recipient> recipients = email.getRecipients();
-        List<String> toAddrs = new ArrayList<>();
-        List<String> ccAddrs = new ArrayList<>();
-        for(Recipient person : recipients) {
-            if (person.getType() == Message.RecipientType.TO) {
-                toAddrs.add(person.getAddress());
-            } else if(person.getType() == Message.RecipientType.CC) {
-                ccAddrs.add(person.getAddress());
-            }
-        }
-        return new EmailMessage(id, from.getAddress(), subject, created,
-                toAddrs, ccAddrs, Collections.emptyList(),
-                plainText, true, false, attachments, calendarText,
-                Optional.empty(), Optional.empty());
+        return new Pair<>(emailMsg, rawAttachmentList);
     }
 
     private static String addCancelToIcalText(String icalText) {
@@ -136,7 +88,7 @@ public class EmailConverter {
         return bout.toByteArray();
     }
 
-    public static Email toEmail(EmailMessage email) {
+    public static Email toEmail(EmailMessage email, Map<String, byte[]> attachmentsMap) {
         Collection<Recipient> toAddrs = email.to.stream()
                 .map(a -> new Recipient(null, a, Message.RecipientType.TO))
                 .collect(Collectors.toList());
@@ -151,9 +103,9 @@ public class EmailConverter {
 
         EmailPopulatingBuilder builder = null;
         if(email.replyingToEmail.isPresent()) {
-            builder = EmailBuilder.replyingTo(toEmail(email.replyingToEmail.get()));
+            builder = EmailBuilder.replyingTo(toEmail(email.replyingToEmail.get(), attachmentsMap));
         } else if(email.forwardingToEmail.isPresent()) {
-            builder = EmailBuilder.forwarding(toEmail(email.forwardingToEmail.get()));
+            builder = EmailBuilder.forwarding(toEmail(email.forwardingToEmail.get(), attachmentsMap));
         } else {
             builder = EmailBuilder.startingBlank().fixingMessageId(email.id);
         }
@@ -173,7 +125,7 @@ public class EmailConverter {
         }
 
         List<AttachmentResource> emailAttachments = email.attachments.stream()
-                .map(a -> new AttachmentResource(a.filename, new ByteArrayDataSource(a.data, a.type)))
+                .map(a -> new AttachmentResource(a.filename, new ByteArrayDataSource(attachmentsMap.get(a.reference.path), a.type)))
                 .collect(Collectors.toList());
 
         if (emailAttachments.size() > 0) {
