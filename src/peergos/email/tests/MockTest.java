@@ -93,6 +93,11 @@ public class MockTest {
         String dirStr = userContext.username + "/.apps/email/data/pending";
         Path directoryPath = peergos.client.PathUtils.directoryToPath(dirStr.split("/"));
         userContext.shareWriteAccessWith(directoryPath, sharees.stream().collect(Collectors.toSet())).join();
+
+        dirStr = userContext.username + "/.apps/email/data/attachments";
+        directoryPath = peergos.client.PathUtils.directoryToPath(dirStr.split("/"));
+        userContext.shareWriteAccessWith(directoryPath, sharees.stream().collect(Collectors.toSet())).join();
+
         return userContext;
     }
 
@@ -148,7 +153,7 @@ public class MockTest {
                 sentEmail.add(true);
                 return true;
             }
-        }, userContext);
+        }, emailBridgeContext);
         sender.sendEmails(userContext.username);
         Assert.assertTrue(sentEmail.size() > 0);
     }
@@ -175,7 +180,7 @@ public class MockTest {
                 System.out.println("in MockIMAPClient.retrieveEmails");
                 uploadFunc.apply((MimeMessage)mimeMessage);
             }
-        }, userContext);
+        }, emailBridgeContext);
         retriever.retrieveEmailsFromServer(userContext.username,"notagoodone");
         String path = userContext.username + "/.apps/email/data/pending/inbox";
         Optional<FileWrapper> dirOpt = userContext.getByPath(path).join();
