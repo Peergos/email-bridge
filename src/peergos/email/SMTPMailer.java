@@ -22,15 +22,15 @@ public class SMTPMailer {
     public boolean mail(Email email) {
         Mailer mailer = MailerBuilder
                 .withSMTPServer(smtpHost, smtpPort, smtpUsername, smtpPassword)
-                //.withTransportStrategy(TransportStrategy.SMTP_TLS)
-                .withTransportModeLoggingOnly(true)// fixme remove this
+                .withTransportStrategy(TransportStrategy.SMTPS)
+                //.withTransportModeLoggingOnly(true)// fixme remove this
                 .withDebugLogging(true)
                 .buildMailer();
         try {
             mailer.validate(email);
             mailer.sendMail(email);
             return true;
-        } catch (MailException e) {
+        } catch (Throwable e) {
             e.printStackTrace();
             return false;
         }

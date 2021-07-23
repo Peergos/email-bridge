@@ -39,7 +39,7 @@ import java.util.stream.Collectors;
 public class MockTest {
     private static final Logger LOG = Logging.LOG();
 
-    private static Args args = peergos.server.tests.UserTests.buildArgs();
+    private static Args args = peergos.server.tests.UserTests.buildArgs().with("useIPFS", "false").with("enable-gc", "false");
     private static Random random = new Random();
     private static final Crypto crypto = Main.initCrypto();
     private NetworkAccess network = null;
@@ -140,7 +140,7 @@ public class MockTest {
 
         byte[] attachmentData = randomData(10);
         RawAttachment rawAttachment = new RawAttachment("filename.txt", attachmentData.length,
-        "txt", attachmentData);
+                "text/plain", attachmentData);
         Attachment attachment = createAttachment(userContext, rawAttachment);
         createEmail(userContext, Arrays.asList("a@example.com"), Collections.emptyList(), Collections.emptyList(), "subject",
                 "content", Arrays.asList(attachment));
@@ -181,7 +181,7 @@ public class MockTest {
                 uploadFunc.apply((MimeMessage)mimeMessage);
             }
         }, emailBridgeContext);
-        retriever.retrieveEmailsFromServer(userContext.username,"notagoodone");
+        retriever.retrieveEmailsFromServer(userContext.username, "imapUsername", "imapPwd");
         String path = userContext.username + "/.apps/email/data/pending/inbox";
         Optional<FileWrapper> dirOpt = userContext.getByPath(path).join();
         Assert.assertTrue(dirOpt.isPresent());
