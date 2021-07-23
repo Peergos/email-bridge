@@ -25,23 +25,22 @@ public class EmailRetriever {
     }
 
     public void retrieveEmailsFromServerForAll() {
-        String password = "";
-
+        /*
         SocialState state = context.getSocialState().join();
         Set<String> friends = state.getFriends();
 
         for(String friend : friends) {
-            retrieveEmailsFromServer(friend, password);
-        }
+            retrieveEmailsFromServer(friend, imapUsername, imapPassword);
+        }*/
     }
 
-    public boolean retrieveEmailsFromServer(String username, String password) {
-        String path = username + "/.apps/email/data/pending/inbox";
+    public boolean retrieveEmailsFromServer(String peergosUsername, String imapUserame, String imapPassword) {
+        String path = peergosUsername + "/.apps/email/data/pending/inbox";
         Function<MimeMessage, Boolean> upload = (msg) -> {
             Pair<EmailMessage, List<RawAttachment>> emailPackage =  EmailConverter.parseMail(msg);
             List<Attachment> attachments = new ArrayList<>();
             for(RawAttachment rawAttachment : emailPackage.right) {
-                Optional<Attachment> optAttachment = uploadAttachment(username, rawAttachment);
+                Optional<Attachment> optAttachment = uploadAttachment(peergosUsername, rawAttachment);
                 if (optAttachment.isPresent()) {
                     attachments.add(optAttachment.get());
                 }
@@ -61,7 +60,7 @@ public class EmailRetriever {
             return false;
         };
         try {
-            imapClient.retrieveEmails(username, password, upload);
+            imapClient.retrieveEmails(imapUserame, imapPassword, upload);
             return true;
         } catch (Exception e) {
             System.err.println("Error unable to retrieveEmails");

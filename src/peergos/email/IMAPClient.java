@@ -63,13 +63,14 @@ public class IMAPClient {
     }
     private void close(Store store, Folder folder) {
         try {
-            if (store != null && store.isConnected()) {
-                store.close();
-            }
             if (folder != null && folder.isOpen()) {
                 folder.close(true); //expunge deleted
             }
+            if (store != null && store.isConnected()) {
+                store.close();
+            }
         } catch (Exception e) {
+            System.currentTimeMillis();
         }
     }
 }

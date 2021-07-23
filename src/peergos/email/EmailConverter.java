@@ -18,6 +18,22 @@ import java.util.stream.Collectors;
 
 public class EmailConverter {
 
+    private static Random random = new Random();
+
+    private static String getNextLongValue() {
+        boolean done = false;
+        long val = -1;
+        while (!done) {
+            val = Math.abs(random.nextLong());
+            if (val > 0) {
+                done = true;
+            }
+        }
+        return "" + val;
+    }
+    private static String generateMessageId() {
+        return  getNextLongValue() + "." + getNextLongValue() + "@peergos.net";
+    }
     public static Pair<EmailMessage, List<RawAttachment>> parseMail(MimeMessage message) {
 
         MimeMessageParser messageParser = new MimeMessageParser();
@@ -28,7 +44,8 @@ public class EmailConverter {
         List<String> ccAddrs = components.getCcAddresses().stream().map(a -> a.getAddress()).collect(Collectors.toList());
 
         String plainText = components.getPlainContent();
-        String id = components.getMessageId();
+        String messageId = components.getMessageId();
+        String id = messageId == null ? generateMessageId() : messageId;
 
         Date sentDate = components.getSentDate();
         LocalDateTime created = LocalDateTime.ofInstant(sentDate.toInstant(), ZoneId.of("UTC"));
@@ -49,30 +66,12 @@ public class EmailConverter {
         String calendarText = components.getCalendarContent();
         if (calendarText == null) {
             calendarText = "";
-        } else {
-            String calMethod = components.getCalendarMethod();
-            if (calMethod.equals("CANCEL")) {
-                calendarText = addCancelToIcalText(calendarText);
-            }
         }
         EmailMessage emailMsg = new EmailMessage(id, from, subject, created,
                 toAddrs, ccAddrs, Collections.emptyList(),
                 plainText, true, false, Collections.emptyList(), calendarText,
                 Optional.empty(), Optional.empty());
         return new Pair<>(emailMsg, rawAttachmentList);
-    }
-
-    private static String addCancelToIcalText(String icalText) {
-        String cancelledText = "STATUS:CANCELLED";
-        String endToken = "END:VEVENT";
-        int index = icalText.indexOf(endToken);
-        if (index > 0) {
-            return icalText.substring(0, index)
-                    + cancelledText + "\n"
-                    + icalText.substring(index);
-        } else {
-            return icalText;
-        }
     }
 
     private static byte[] readResource(InputStream in) throws IOException {
@@ -121,7 +120,8 @@ public class EmailConverter {
         emailBuilder.fixingSentDate(sendDate);
 
         if (email.icalEvent.length() > 0) {
-            emailBuilder = emailBuilder.withCalendarText(CalendarMethod.REQUEST, email.icalEvent);
+            CalendarMethod method = email.subject.startsWith("CANCELLED") ? CalendarMethod.CANCEL : CalendarMethod.REQUEST;
+            emailBuilder = emailBuilder.withCalendarText(method, email.icalEvent);
         }
 
         List<AttachmentResource> emailAttachments = email.attachments.stream()
