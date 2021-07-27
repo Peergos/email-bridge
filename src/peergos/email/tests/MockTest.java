@@ -33,6 +33,7 @@ import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
@@ -61,9 +62,10 @@ public class MockTest {
 
     public abstract class MockSMTPMailer extends SMTPMailer {
         public MockSMTPMailer() {
-            super("", 0, "", "");
+            super("", 0);
         }
-        public abstract boolean mail(Email email);
+        @Override
+        public abstract boolean mail(Email email, String smtpUsername, String smtpPassword);
     }
 
     public abstract class MockIMAPClient extends IMAPClient {
@@ -76,28 +78,24 @@ public class MockTest {
 
     private UserContext createNewEmailUser() {
         String password = "notagoodone";
-        UserContext userContext = PeergosNetworkUtils.ensureSignedUp("a-" + generateUsername(), password, network, crypto);
+        UserContext userContext = PeergosNetworkUtils.ensureSignedUp("a-" + generateUsername(), password,
+                network, crypto);
 
         List<UserContext> shareeUsers = Arrays.asList(emailBridgeContext);
         PeergosNetworkUtils.friendBetweenGroups(Arrays.asList(userContext), shareeUsers);
 
         App.init(userContext, "email").join();
         List<String> dirs = Arrays.asList("inbox","sent","pending", "attachments", "pending/inbox", "pending/outbox");
-        Path attachmentsDir = Paths.get(".apps", "email", "data");
+        Path baseDir = Paths.get(".apps", "email", "data", "default");
         for(String dir : dirs) {
-            Path dirFromHome = attachmentsDir.resolve(Paths.get(dir));
+            Path dirFromHome = baseDir.resolve(Paths.get(dir));
             Optional<FileWrapper> homeOpt = userContext.getByPath(userContext.username).join();
             homeOpt.get().getOrMkdirs(dirFromHome, userContext.network, true, userContext.crypto).join();
         }
         List<String> sharees = Arrays.asList(emailBridgeContext.username);
-        String dirStr = userContext.username + "/.apps/email/data/pending";
+        String dirStr = userContext.username + "/.apps/email/data/default";
         Path directoryPath = peergos.client.PathUtils.directoryToPath(dirStr.split("/"));
         userContext.shareWriteAccessWith(directoryPath, sharees.stream().collect(Collectors.toSet())).join();
-
-        dirStr = userContext.username + "/.apps/email/data/attachments";
-        directoryPath = peergos.client.PathUtils.directoryToPath(dirStr.split("/"));
-        userContext.shareWriteAccessWith(directoryPath, sharees.stream().collect(Collectors.toSet())).join();
-
         return userContext;
     }
 
@@ -120,17 +118,16 @@ public class MockTest {
         EmailMessage email = new EmailMessage("id", userContext.username, subject,
                 LocalDateTime.now(), to, cc, bcc,
                 content, true, true, attachments, null,
-                Optional.empty(), Optional.empty());
+                Optional.empty(), Optional.empty(), Optional.empty());
 
         byte[] bytes = email.toBytes();
         App emailApp = App.init(userContext, "email").join();
-        saveEmail(emailApp, "sent", bytes, "data.id");
-        saveEmail(emailApp, "pending/outbox", bytes, "data.id");
+        saveEmail(emailApp, "default/pending/outbox", bytes, "data.id");
     }
     private Attachment createAttachment(UserContext userContext, RawAttachment rawAttachment) {
         ProgressConsumer<Long> monitor = l -> {};
         AsyncReader reader = new peergos.shared.user.fs.AsyncReader.ArrayBacked(rawAttachment.data);
-        Pair<String, FileRef> attachment = EmailAttachmentHelper.upload(userContext, userContext.username, reader, "dat", rawAttachment.data.length, monitor).join();
+        Pair<String, FileRef> attachment = EmailAttachmentHelper.upload(userContext, userContext.username, "default", reader, "dat", rawAttachment.data.length, monitor).join();
         return new Attachment(rawAttachment.filename, rawAttachment.size, rawAttachment.type, attachment.right);
     }
 
@@ -147,15 +144,22 @@ public class MockTest {
         List<Boolean> sentEmail = new ArrayList<>();
         EmailSender sender = new EmailSender(new MockSMTPMailer() {
             @Override
-            public boolean mail(Email email) {
+            public boolean mail(Email email, String smtpUsername, String smtpPassword) {
                 System.out.println("in MockSMTPMailer.mail");
                 Assert.assertEquals(email.getAttachments().size(), 1);
                 sentEmail.add(true);
                 return true;
             }
         }, emailBridgeContext);
-        sender.sendEmails(userContext.username);
+        String smtpUsername = "";
+        String smtpPassword = "";
+        sender.sendEmails(userContext.username, userContext.username + "@example.com",smtpUsername, smtpPassword);
         Assert.assertTrue(sentEmail.size() > 0);
+        String sentPath = userContext.username + "/.apps/email/data/default/sent";
+        Optional<FileWrapper> sentDirOpt = userContext.getByPath(sentPath).join();
+        Set<FileWrapper> sentEmails = sentDirOpt.get().getChildren(crypto.hasher, network).join();
+        Assert.assertTrue(sentEmails.size() > 0);
+
     }
 
     @Test
@@ -171,9 +175,9 @@ public class MockTest {
                 .withAttachment("filename.txt", randomData(100), "txt")
                 .buildEmail();
 
-        //NOTE the id will be NULL and not the messageId from above. That is expected in this case
         MimeMessage mimeMessage = org.simplejavamail.converter.EmailConverter.emailToMimeMessage(event);
-        //Message-ID: email-id
+        Random random = new Random(23);
+        Supplier<String> messageIdSupplier = () -> "<" + Math.abs(random.nextInt(Integer.MAX_VALUE -1)) + "@example.com>";
         EmailRetriever retriever = new EmailRetriever(new MockIMAPClient() {
             @Override
             public void retrieveEmails(String username, String password, Function<MimeMessage, Boolean> uploadFunc) throws MessagingException {
@@ -181,8 +185,8 @@ public class MockTest {
                 uploadFunc.apply((MimeMessage)mimeMessage);
             }
         }, emailBridgeContext);
-        retriever.retrieveEmailsFromServer(userContext.username, "imapUsername", "imapPwd");
-        String path = userContext.username + "/.apps/email/data/pending/inbox";
+        retriever.retrieveEmailsFromServer(userContext.username, messageIdSupplier, "imapUsername", "imapPwd");
+        String path = userContext.username + "/.apps/email/data/default/pending/inbox";
         Optional<FileWrapper> dirOpt = userContext.getByPath(path).join();
         Assert.assertTrue(dirOpt.isPresent());
         List<FileWrapper> files = dirOpt.get().getChildren(crypto.hasher, network).join().stream().collect(Collectors.toList());

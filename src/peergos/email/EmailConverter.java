@@ -14,27 +14,12 @@ import java.io.*;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.*;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 public class EmailConverter {
 
-    private static Random random = new Random();
-
-    private static String getNextLongValue() {
-        boolean done = false;
-        long val = -1;
-        while (!done) {
-            val = Math.abs(random.nextLong());
-            if (val > 0) {
-                done = true;
-            }
-        }
-        return "" + val;
-    }
-    private static String generateMessageId() {
-        return  getNextLongValue() + "." + getNextLongValue() + "@peergos.net";
-    }
-    public static Pair<EmailMessage, List<RawAttachment>> parseMail(MimeMessage message) {
+    public static Pair<EmailMessage, List<RawAttachment>> parseMail(MimeMessage message, Supplier<String> messageIdSupplier) {
 
         MimeMessageParser messageParser = new MimeMessageParser();
         MimeMessageParser.ParsedMimeMessageComponents components = messageParser.parseMimeMessage(message);
@@ -45,7 +30,7 @@ public class EmailConverter {
 
         String plainText = components.getPlainContent();
         String messageId = components.getMessageId();
-        String id = messageId == null ? generateMessageId() : messageId;
+        String id = messageId == null ? messageIdSupplier.get() : messageId;
 
         Date sentDate = components.getSentDate();
         LocalDateTime created = LocalDateTime.ofInstant(sentDate.toInstant(), ZoneId.of("UTC"));
@@ -58,7 +43,7 @@ public class EmailConverter {
                 String name = source.getName();
                 String resName = attachment.getKey();
                 byte[] data = readResource(source.getInputStream());
-                rawAttachmentList.add(new RawAttachment(name, data.length, type, data));
+                rawAttachmentList.add(new RawAttachment(resName, data.length, type, data));
             } catch(Exception e) {
                 e.printStackTrace();
             }
@@ -70,7 +55,8 @@ public class EmailConverter {
         EmailMessage emailMsg = new EmailMessage(id, from, subject, created,
                 toAddrs, ccAddrs, Collections.emptyList(),
                 plainText, true, false, Collections.emptyList(), calendarText,
-                Optional.empty(), Optional.empty());
+                Optional.empty(), Optional.empty(), Optional.empty());
+
         return new Pair<>(emailMsg, rawAttachmentList);
     }
 
@@ -125,12 +111,11 @@ public class EmailConverter {
         }
 
         List<AttachmentResource> emailAttachments = email.attachments.stream()
+                .filter(f -> attachmentsMap.containsKey(f.reference.path))
                 .map(a -> new AttachmentResource(a.filename, new ByteArrayDataSource(attachmentsMap.get(a.reference.path), a.type)))
                 .collect(Collectors.toList());
 
-        if (emailAttachments.size() > 0) {
-            emailBuilder = emailBuilder.withAttachments(emailAttachments);
-        }
+        emailBuilder = emailBuilder.withAttachments(emailAttachments);
         return emailBuilder.buildEmail();
     }
 }
