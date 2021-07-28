@@ -23,7 +23,10 @@ public class SMTPMailer {
                 //.async()
                 .buildMailer();
         try {
-            mailer.validate(email);
+            if (!mailer.validate(email)) {
+                //fixme handle this better
+                return false;
+            }
             mailer.sendMail(email);
             return true;
         } catch (Throwable e) {

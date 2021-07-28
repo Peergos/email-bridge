@@ -13,6 +13,7 @@ import java.io.ByteArrayOutputStream;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.*;
 
 public class EmailSender {
@@ -148,10 +149,10 @@ public class EmailSender {
         String messageId = "<" + Math.abs(random.nextInt(Integer.MAX_VALUE - 1))
                 + "." + Math.abs(random.nextInt(Integer.MAX_VALUE - 1)) + "@" + domain + ">";
 
-        EmailMessage preparedEmail = email.prepare(messageId, emailAddress, LocalDateTime.now());
-        Email emailToSend = EmailConverter.toEmail(preparedEmail, attachmentsMap);
-        if (mailer.mail(emailToSend, smtpUsername, smtpPassword)) {
-            return Optional.of(preparedEmail);
+        EmailMessage preparedEmail = email.prepare(messageId, emailAddress, LocalDateTime.now(ZoneOffset.UTC));
+        Pair<Email, Optional<EmailMessage>> emailToSend = EmailConverter.toEmail(preparedEmail, attachmentsMap, true);
+        if (mailer.mail(emailToSend.left, smtpUsername, smtpPassword)) {
+            return Optional.of(emailToSend.right.get());
         } else {
             return Optional.empty();
         }
