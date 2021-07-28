@@ -88,26 +88,32 @@ public class EmailConverter {
 
         EmailPopulatingBuilder builder = null;
         if(email.replyingToEmail.isPresent()) {
-            builder = EmailBuilder.replyingTo(toEmail(email.replyingToEmail.get(), attachmentsMap));
+            Email origEmail = toEmail(email.replyingToEmail.get(), attachmentsMap);
+            builder = EmailBuilder.replyingTo(origEmail).fixingMessageId(email.id);
         } else if(email.forwardingToEmail.isPresent()) {
-            builder = EmailBuilder.forwarding(toEmail(email.forwardingToEmail.get(), attachmentsMap));
+            Email origEmail = toEmail(email.forwardingToEmail.get(), attachmentsMap);
+            builder = EmailBuilder.forwarding(origEmail).fixingMessageId(email.id);
         } else {
             builder = EmailBuilder.startingBlank().fixingMessageId(email.id);
         }
-
-        EmailPopulatingBuilder emailBuilder = builder.from(email.from)
+        builder = builder.clearRecipients().from(email.from)
                 .to(toAddrs)
                 .cc(ccAddrs)
-                .bcc(bccAddrs)
-                .withSubject(email.subject)
-                .withPlainText(email.content);
+                .bcc(bccAddrs);
+
+        if (email.replyingToEmail.isPresent() || email.forwardingToEmail.isPresent()) {
+            builder = builder.prependText(email.content + "\n\n");
+        } else {
+            builder = builder.withPlainText(email.content);
+        }
+        builder = builder.withSubject(email.subject);
 
         Date sendDate = Date.from(email.created.atZone(ZoneId.of("UTC")).toInstant());
-        emailBuilder.fixingSentDate(sendDate);
+        builder = builder.fixingSentDate(sendDate);
 
         if (email.icalEvent.length() > 0) {
             CalendarMethod method = email.subject.startsWith("CANCELLED") ? CalendarMethod.CANCEL : CalendarMethod.REQUEST;
-            emailBuilder = emailBuilder.withCalendarText(method, email.icalEvent);
+            builder = builder.withCalendarText(method, email.icalEvent);
         }
 
         List<AttachmentResource> emailAttachments = email.attachments.stream()
@@ -115,7 +121,9 @@ public class EmailConverter {
                 .map(a -> new AttachmentResource(a.filename, new ByteArrayDataSource(attachmentsMap.get(a.reference.path), a.type)))
                 .collect(Collectors.toList());
 
-        emailBuilder = emailBuilder.withAttachments(emailAttachments);
-        return emailBuilder.buildEmail();
+        if (emailAttachments.size() > 0) {
+            builder = builder.withAttachments(emailAttachments);
+        }
+        return builder.buildEmail();
     }
 }

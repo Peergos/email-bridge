@@ -11,7 +11,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.concurrent.*;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 public class EmailBridge {
@@ -118,13 +120,13 @@ public class EmailBridge {
                     delayMs = backOff(delayMs);
                 }
             }
-            System.out.println(LocalDateTime.now() + " Finished Task ReceiveTask.");
+            System.out.println(LocalDateTime.now() + " Finished Task SendTask.");
             running = false;
         }
     }
     class ReceiveTask implements Runnable {
         private final Path pathToAccountsFile;
-        private final Random random = new Random(23);
+        private final Random random = new Random();
         private volatile boolean running = false;
 
         public ReceiveTask(Path pathToAccountsFile) {
@@ -171,7 +173,7 @@ public class EmailBridge {
         if (delay >= 1000 * 60 * 10) {
             return delay;
         } else {
-            return delay * delay;
+            return delay * 2;
         }
     }
 }

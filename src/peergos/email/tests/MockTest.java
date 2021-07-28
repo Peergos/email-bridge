@@ -176,7 +176,7 @@ public class MockTest {
                 .buildEmail();
 
         MimeMessage mimeMessage = org.simplejavamail.converter.EmailConverter.emailToMimeMessage(event);
-        Random random = new Random(23);
+        Random random = new Random();
         Supplier<String> messageIdSupplier = () -> "<" + Math.abs(random.nextInt(Integer.MAX_VALUE -1)) + "@example.com>";
         EmailRetriever retriever = new EmailRetriever(new MockIMAPClient() {
             @Override

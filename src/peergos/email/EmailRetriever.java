@@ -10,6 +10,7 @@ import peergos.shared.user.fs.FileWrapper;
 import peergos.shared.util.Pair;
 import peergos.shared.util.ProgressConsumer;
 
+import javax.mail.MessagingException;
 import javax.mail.internet.MimeMessage;
 import java.util.*;
 import java.util.function.Function;
@@ -36,24 +37,18 @@ public class EmailRetriever {
                 }
             }
             EmailMessage email = emailPackage.left.withAttachments(attachments);
-            try {
-                Optional<FileWrapper> directory = context.getByPath(path).get();
-                if (directory.isPresent()) {
-                    if (UploadHelper.uploadEmail(context, email, directory.get(), path)) {
-                        return true;
-                    }
+            Optional<FileWrapper> directory = context.getByPath(path).join();
+            if (directory.isPresent()) {
+                if (UploadHelper.uploadEmail(context, email, directory.get(), path)) {
+                    return true;
                 }
-            } catch (Exception e) {
-                System.err.println("Error getting directory: " + path);
-                e.printStackTrace();
-                return false;
             }
             return false;
         };
         try {
             imapClient.retrieveEmails(imapUserame, imapPassword, upload);
             return true;
-        } catch (Exception e) {
+        } catch (MessagingException e) {
             System.err.println("Error unable to retrieveEmails");
             e.printStackTrace();
             return false;

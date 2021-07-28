@@ -1,10 +1,8 @@
 package peergos.email;
 
-import peergos.shared.Crypto;
-import peergos.shared.NetworkAccess;
+import org.simplejavamail.api.email.Email;
 import peergos.shared.email.Attachment;
 import peergos.shared.email.EmailMessage;
-import peergos.shared.user.SocialState;
 import peergos.shared.user.UserContext;
 import peergos.shared.user.fs.AsyncReader;
 import peergos.shared.user.fs.FileWrapper;
@@ -16,13 +14,12 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.function.Supplier;
 
 public class EmailSender {
 
     private final SMTPMailer mailer;
     private final UserContext context;
-    private final Random random = new Random(3);
+    private final Random random = new Random();
 
     public EmailSender(SMTPMailer mailer, UserContext context) {
         this.mailer = mailer;
@@ -30,50 +27,35 @@ public class EmailSender {
     }
 
     public boolean sendEmails(String username, String emailAddress, String smtpUsername, String smtpPassword) {
-        try {
-            String path = username + "/.apps/email/data/default/pending/outbox";
-            Optional<FileWrapper> directory = context.getByPath(path).get();
-            if (directory.isPresent()) {
-                return processOutboundEmails(username, directory.get(), path, emailAddress, smtpUsername, smtpPassword);
-            }
-        } catch (Exception e) {
-            System.err.println("Error retrieving outbox for user: " + username);
-            e.printStackTrace();
-            return false;
+        String path = username + "/.apps/email/data/default/pending/outbox";
+        Optional<FileWrapper> directory = context.getByPath(path).join();
+        if (directory.isPresent()) {
+            return processOutboundEmails(username, directory.get(), path, emailAddress, smtpUsername, smtpPassword);
+        } else {
+            return true;
         }
-        return true;
     }
     private boolean processOutboundEmails(String username, FileWrapper directory, String path, String emailAddress, String smtpUsername, String smtpPassword) {
-        try {
-            Set<FileWrapper> files = directory.getChildren(context.crypto.hasher, context.network).get();
-            for (FileWrapper file : files) {
-                Optional<Pair<EmailMessage, Map<String, byte[]>>> emailOpt = retrieveEmailFromPending(path, file);
-                if (emailOpt.isPresent()) {
-                    Optional<EmailMessage> sentMessage = sendEmail(emailOpt.get().left, emailOpt.get().right, emailAddress, smtpUsername, smtpPassword);
-                    if (sentMessage.isPresent()) {
-                        return afterSendingEmailActions(username, sentMessage.get(), directory, path, file);
-                    }
+        Set<FileWrapper> files = directory.getChildren(context.crypto.hasher, context.network).join();
+        for (FileWrapper file : files) {
+            Optional<Pair<EmailMessage, Map<String, byte[]>>> emailOpt = retrieveEmailFromPending(path, file);
+            if (emailOpt.isPresent()) {
+                Optional<EmailMessage> sentMessage = sendEmail(emailOpt.get().left, emailOpt.get().right, emailAddress, smtpUsername, smtpPassword);
+                if (sentMessage.isPresent()) {
+                    return afterSendingEmailActions(username, sentMessage.get(), directory, path, file);
+                } else {
+                    return false;
                 }
             }
-        } catch (Exception e) {
-            System.err.println("Error retrieving files for directory: " + path);
-            e.printStackTrace();
-            return false;
         }
         return true;
     }
     private boolean afterSendingEmailActions(String username, EmailMessage sentMessage, FileWrapper directory, String path, FileWrapper file) {
-        try {
-            String sentFolderPath = username + "/.apps/email/data/default/sent";
-            Optional<FileWrapper> sentDirectory = context.getByPath(sentFolderPath).get();
-            if (UploadHelper.uploadEmail(context, sentMessage, sentDirectory.get(), sentFolderPath)) {
-                return deleteEmail(directory, path, file);
-            } else {
-                return false;
-            }
-        } catch (Exception e) {
-            System.err.println("Error finding sent directory");
-            e.printStackTrace();
+        String sentFolderPath = username + "/.apps/email/data/default/sent";
+        Optional<FileWrapper> sentDirectory = context.getByPath(sentFolderPath).join();
+        if (UploadHelper.uploadEmail(context, sentMessage, sentDirectory.get(), sentFolderPath)) {
+            return deleteEmail(directory, path, file);
+        } else {
             return false;
         }
     }
@@ -167,8 +149,8 @@ public class EmailSender {
                 + "." + Math.abs(random.nextInt(Integer.MAX_VALUE - 1)) + "@" + domain + ">";
 
         EmailMessage preparedEmail = email.prepare(messageId, emailAddress, LocalDateTime.now());
-        if (mailer.mail(EmailConverter.toEmail(preparedEmail, attachmentsMap)
-                , smtpUsername, smtpPassword)) {
+        Email emailToSend = EmailConverter.toEmail(preparedEmail, attachmentsMap);
+        if (mailer.mail(emailToSend, smtpUsername, smtpPassword)) {
             return Optional.of(preparedEmail);
         } else {
             return Optional.empty();

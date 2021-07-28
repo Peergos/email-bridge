@@ -18,8 +18,9 @@ public class SMTPMailer {
         Mailer mailer = MailerBuilder
                 .withSMTPServer(smtpHost, smtpPort, smtpUsername, smtpPassword)
                 .withTransportStrategy(TransportStrategy.SMTPS)
-                //.withTransportModeLoggingOnly(true)// fixme remove this
-                .withDebugLogging(true)
+                //.withTransportModeLoggingOnly(true)
+                .withDebugLogging(true)// fixme remove this
+                //.async()
                 .buildMailer();
         try {
             mailer.validate(email);
