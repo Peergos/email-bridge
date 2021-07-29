@@ -52,7 +52,7 @@ public class EmailSender {
         return true;
     }
     private boolean afterSendingEmailActions(String username, EmailMessage sentMessage, FileWrapper directory, String path, FileWrapper file) {
-        String sentFolderPath = username + "/.apps/email/data/default/sent";
+        String sentFolderPath = username + "/.apps/email/data/default/pending/sent";
         Optional<FileWrapper> sentDirectory = context.getByPath(sentFolderPath).join();
         if (UploadHelper.uploadEmail(context, sentMessage, sentDirectory.get(), sentFolderPath)) {
             return deleteEmail(directory, path, file);
@@ -66,7 +66,7 @@ public class EmailSender {
             file.remove(directory, pathToFile, context).get();
             return true;
         } catch (Exception e) {
-            System.err.println("Error deleting email from outbox path: " + path + " file:" + file);
+            System.err.println("Error deleting email path: " + path + " file:" + file);
             e.printStackTrace();
         }
         return false;
@@ -96,6 +96,8 @@ public class EmailSender {
             if (validateEmail(msg)) {
                 return Optional.of(new Pair<>(msg, attachmentsMap));
             } else {
+                Optional<FileWrapper> directory = context.getByPath(path).join();
+                deleteEmail(directory.get(), path, file);
                 return Optional.empty();
             }
         } else {

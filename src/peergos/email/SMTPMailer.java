@@ -19,7 +19,7 @@ public class SMTPMailer {
                 .withSMTPServer(smtpHost, smtpPort, smtpUsername, smtpPassword)
                 .withTransportStrategy(TransportStrategy.SMTPS)
                 //.withTransportModeLoggingOnly(true)
-                .withDebugLogging(true)// fixme remove this
+                //.withDebugLogging(true)
                 //.async()
                 .buildMailer();
         try {
