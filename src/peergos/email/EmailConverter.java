@@ -32,7 +32,7 @@ public class EmailConverter {
 
         String plainText = components.getPlainContent();
         String messageId = components.getMessageId();
-        String id = messageId == null ? messageIdSupplier.get() : messageId;
+        String msgId = messageId == null ? messageIdSupplier.get() : messageId;
 
         Date sentDate = components.getSentDate();
         LocalDateTime created = LocalDateTime.ofInstant(sentDate.toInstant(), ZoneId.of("UTC"));
@@ -54,7 +54,8 @@ public class EmailConverter {
         if (calendarText == null) {
             calendarText = "";
         }
-        EmailMessage emailMsg = new EmailMessage(id, from, subject, created,
+        String id = UUID.randomUUID().toString();
+        EmailMessage emailMsg = new EmailMessage(id, msgId, from, subject, created,
                 toAddrs, ccAddrs, Collections.emptyList(),
                 plainText, true, false, Collections.emptyList(), calendarText,
                 Optional.empty(), Optional.empty(), Optional.empty());
@@ -105,28 +106,29 @@ public class EmailConverter {
         }
         return builder;
     }
-    private static String buildFileRefMapKey(String name, int length, String type) {
+    private static String buildAttachmentUUIDMapKey(String name, int length, String type) {
         return name + "-" + length + "-" + type;
     }
-    private static Map<String, FileRef> populateFileRefMap(EmailMessage email, Map<String, byte[]> attachmentsMap) {
-        Map<String, FileRef> fileRefMap = new HashMap<>();
-        populateFileRefMap(email.attachments, attachmentsMap, fileRefMap);
+    private static Map<String, String> populateAttachmentUUIDMap(EmailMessage email, Map<String, byte[]> attachmentsMap) {
+        Map<String, String> attachmentToUUIDMap = new HashMap<>();
+        populateAttachmentUUIDMap(email.attachments, attachmentsMap, attachmentToUUIDMap);
         if (email.forwardingToEmail.isPresent()) {
-            populateFileRefMap(email.forwardingToEmail.get().attachments, attachmentsMap, fileRefMap);
+            populateAttachmentUUIDMap(email.forwardingToEmail.get().attachments, attachmentsMap, attachmentToUUIDMap);
         }
-        return fileRefMap;
+        return attachmentToUUIDMap;
     }
-    private static void populateFileRefMap(List<Attachment> attachments, Map<String, byte[]> attachmentsMap, Map<String, FileRef> fileRefMap) {
+    private static void populateAttachmentUUIDMap(List<Attachment> attachments, Map<String, byte[]> attachmentsMap,
+                                                  Map<String, String> attachmentToUUIDMap) {
         for(Attachment attachment : attachments) {
-            byte[] val = attachmentsMap.get(attachment.reference.path);
+            byte[] val = attachmentsMap.get(attachment.uuid);
             if (val != null) {
-                String key = buildFileRefMapKey(attachment.filename, val.length, attachment.type);
-                fileRefMap.put(key, attachment.reference);
+                String key = buildAttachmentUUIDMapKey(attachment.filename, val.length, attachment.type);
+                attachmentToUUIDMap.put(key, attachment.uuid);
             }
         }
     }
     public static Pair<Email, Optional<EmailMessage>> toEmail(EmailMessage email, Map<String, byte[]> attachmentsMap, boolean roundTrip) {
-        Map<String, FileRef> fileRefMap = populateFileRefMap(email, attachmentsMap);
+        Map<String, String> attachmentToUUIDMap = populateAttachmentUUIDMap(email, attachmentsMap);
         Collection<Recipient> toAddrs = email.to.stream()
                 .map(a -> new Recipient(null, a, Message.RecipientType.TO))
                 .collect(Collectors.toList());
@@ -150,7 +152,7 @@ public class EmailConverter {
         } else {
             builder = EmailBuilder.startingBlank();
         }
-        builder = builder.fixingMessageId(email.id)
+        builder = builder.fixingMessageId(email.msgId)
                 .clearRecipients()
                 .from(email.from)
                 .to(toAddrs)
@@ -174,23 +176,21 @@ public class EmailConverter {
             builder = builder.withCalendarText(method, email.icalEvent);
         }
         List<AttachmentResource> emailAttachments = email.attachments.stream()
-                .filter(f -> attachmentsMap.containsKey(f.reference.path))
-                .map(a -> new AttachmentResource(a.filename, new ByteArrayDataSource(attachmentsMap.get(a.reference.path), a.type)))
+                .filter(f -> attachmentsMap.containsKey(f.uuid))
+                .map(a -> new AttachmentResource(a.filename, new ByteArrayDataSource(attachmentsMap.get(a.uuid), a.type)))
                 .collect(Collectors.toList());
 
         if (emailAttachments.size() > 0) {
-            List<AttachmentResource> currentAttachments = new ArrayList<>(builder.getAttachments());
-            currentAttachments.addAll(emailAttachments);
-            builder = builder.withAttachments(currentAttachments);
+            builder = builder.withAttachments(emailAttachments);
         }
         Email producedEmail = builder.buildEmail();
 
         Optional<EmailMessage> emailMessage = roundTrip ?
-                Optional.of(toEmailMessage(producedEmail, fileRefMap)) : Optional.empty();
+                Optional.of(toSentEmailMessage(email.id, producedEmail, attachmentToUUIDMap)) : Optional.empty();
         return new Pair<>(producedEmail, emailMessage);
     }
 
-    private static EmailMessage toEmailMessage(Email email, Map<String, FileRef> fileRefMap) {
+    private static EmailMessage toSentEmailMessage(String id, Email email, Map<String, String> attachmentToUUIDMap) {
         List<Attachment> attachments = new ArrayList<>();
         for(AttachmentResource res : email.getAttachments()) {
             DataSource source = res.getDataSource();
@@ -198,15 +198,17 @@ public class EmailConverter {
                 String type = source.getContentType();
                 String name = res.getName();
                 byte[] data = readResource(source.getInputStream());
-                String key = buildFileRefMapKey(name, data.length, type);
-                Attachment attachment = new Attachment(name, data.length, type, fileRefMap.get(key));
+                String key = buildAttachmentUUIDMapKey(name, data.length, type);
+                Attachment attachment = new Attachment(name, data.length, type, attachmentToUUIDMap.get(key));
                 attachments.add(attachment);
             } catch(Exception e) {
             }
         }
+
         String calendarText = email.getCalendarText();
         Recipient from = email.getFromRecipient();
-        String id = email.getId();
+
+        String msgId = email.getId();
         String plainText = email.getPlainText();
         Date sentDate = email.getSentDate();
         LocalDateTime created = LocalDateTime.ofInstant(sentDate.toInstant(), ZoneId.of("UTC"));
@@ -225,7 +227,7 @@ public class EmailConverter {
                 bccAddrs.add(person.getAddress());
             }
         }
-        return new EmailMessage(id, from.getAddress(), subject, created,
+        return new EmailMessage(id, msgId, from.getAddress(), subject, created,
         toAddrs, ccAddrs, bccAddrs, plainText, true, false, attachments, calendarText,
         Optional.empty(), Optional.empty(), Optional.empty());
     }

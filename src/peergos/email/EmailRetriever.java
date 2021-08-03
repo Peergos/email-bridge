@@ -34,12 +34,16 @@ public class EmailRetriever {
                 Optional<Attachment> optAttachment = uploadAttachment(peergosUsername, rawAttachment);
                 if (optAttachment.isPresent()) {
                     attachments.add(optAttachment.get());
+                }else {
+                    return false;
                 }
             }
             EmailMessage email = emailPackage.left.withAttachments(attachments);
             Optional<FileWrapper> directory = context.getByPath(path).join();
             if (directory.isPresent()) {
-                if (UploadHelper.uploadEmail(context, email, directory.get(), path)) {
+                String emailFilename = email.id + ".cbor";
+                byte[] emailData = email.toBytes();
+                if (UploadHelper.upload(context, emailFilename, emailData, directory.get(), path)) {
                     return true;
                 }
             }
@@ -61,9 +65,9 @@ public class EmailRetriever {
                 ?  rawAttachment.filename.substring(dotIndex + 1) : "";
         ProgressConsumer<Long> monitor = l -> {};
         try {
-            Pair<String, FileRef> result = EmailAttachmentHelper.upload(context, username, "default", reader, fileExtension,
-                    rawAttachment.size, monitor).get();
-            return Optional.of(new Attachment(rawAttachment.filename, rawAttachment.size, rawAttachment.type, result.right));
+            String uuid = EmailAttachmentHelper.upload(context, username, "default", "pending/inbox",reader,
+                    fileExtension, rawAttachment.size, monitor).get();
+            return Optional.of(new Attachment(rawAttachment.filename, rawAttachment.size, rawAttachment.type, uuid));
         } catch (Exception e) {
             e.printStackTrace();
             System.err.println("Error uploading attachment file: " + rawAttachment.filename + " for user:" + username);

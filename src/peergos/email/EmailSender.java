@@ -15,6 +15,7 @@ import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.*;
+import java.util.stream.Collectors;
 
 public class EmailSender {
 
@@ -37,13 +38,14 @@ public class EmailSender {
         }
     }
     private boolean processOutboundEmails(String username, FileWrapper directory, String path, String emailAddress, String smtpUsername, String smtpPassword) {
-        Set<FileWrapper> files = directory.getChildren(context.crypto.hasher, context.network).join();
+        Set<FileWrapper> files = directory.getChildren(context.crypto.hasher, context.network).join()
+                .stream().filter(f -> !f.isDirectory()).collect(Collectors.toSet());
         for (FileWrapper file : files) {
             Optional<Pair<EmailMessage, Map<String, byte[]>>> emailOpt = retrieveEmailFromPending(path, file);
             if (emailOpt.isPresent()) {
                 Optional<EmailMessage> sentMessage = sendEmail(emailOpt.get().left, emailOpt.get().right, emailAddress, smtpUsername, smtpPassword);
                 if (sentMessage.isPresent()) {
-                    return afterSendingEmailActions(username, sentMessage.get(), directory, path, file);
+                    return afterSendingEmailActions(username, sentMessage.get(), directory, path, file, emailOpt.get().right);
                 } else {
                     return false;
                 }
@@ -51,40 +53,62 @@ public class EmailSender {
         }
         return true;
     }
-    private boolean afterSendingEmailActions(String username, EmailMessage sentMessage, FileWrapper directory, String path, FileWrapper file) {
+    private boolean afterSendingEmailActions(String username, EmailMessage sentMessage, FileWrapper directory,
+                                             String path, FileWrapper file, Map<String, byte[]> attachmentMap) {
         String sentFolderPath = username + "/.apps/email/data/default/pending/sent";
         Optional<FileWrapper> sentDirectory = context.getByPath(sentFolderPath).join();
-        if (UploadHelper.uploadEmail(context, sentMessage, sentDirectory.get(), sentFolderPath)) {
-            return deleteEmail(directory, path, file);
+        String emailFilename = sentMessage.id + ".cbor";
+        byte[] emailData = sentMessage.toBytes();
+        if (UploadHelper.upload(context, emailFilename, emailData, sentDirectory.get(), sentFolderPath)) {
+            if (deleteFile(directory, path, file)) {
+                String sentAttachmentFolderPath = sentFolderPath + "/attachments";
+                Optional<FileWrapper> sentAttachmentDirectory = context.getByPath(sentAttachmentFolderPath).join();
+                for(Map.Entry<String, byte[]> attachmentEntry: attachmentMap.entrySet()){
+                    String attachmentFilename = attachmentEntry.getKey();
+                    byte[] attachmentData = attachmentEntry.getValue();
+                    if (!UploadHelper.upload(context, attachmentFilename, attachmentData, sentAttachmentDirectory.get(), sentAttachmentFolderPath)) {
+                        return false;
+                    }
+                    String inboxAttachmentFolderPath = username + "/.apps/email/data/default/pending/outbox/attachments";
+                    Optional<FileWrapper> inboxAttachmentDirectory = context.getByPath(inboxAttachmentFolderPath).join();
+                    Optional<FileWrapper> attachmentFile = context.getByPath(inboxAttachmentFolderPath + "/" + attachmentFilename).join();
+                    if (!deleteFile(inboxAttachmentDirectory.get(), inboxAttachmentFolderPath, attachmentFile.get())) {
+                        return false;
+                    }
+                }
+                return true;
+            } else {
+                return false;
+            }
         } else {
             return false;
         }
     }
-    private boolean deleteEmail(FileWrapper directory, String path, FileWrapper file) {
+
+    private boolean deleteFile(FileWrapper directory, String path, FileWrapper file) {
         Path pathToFile = Paths.get(path).resolve(file.getName());
         try {
             file.remove(directory, pathToFile, context).get();
             return true;
         } catch (Exception e) {
-            System.err.println("Error deleting email path: " + path + " file:" + file);
+            System.err.println("Error deleting file path: " + path);
             e.printStackTrace();
         }
         return false;
     }
-    private Map<String, byte[]> populateAttachmentsMap(EmailMessage msg, Map<String, byte[]> attachmentsMap) {
+    private Map<String, byte[]> populateAttachmentsMap(EmailMessage msg, String path, Map<String, byte[]> attachmentsMap) {
         for(Attachment attachment : msg.attachments) {
-            Optional<FileWrapper> optFile = context.network.getFile(attachment.reference.cap, this.context.username).join();
+            String completePath = path + "/attachments/" + attachment.uuid;
+            Optional<FileWrapper> optFile = context.getByPath(completePath).join();
             if (optFile.isPresent()) {
-                Optional<byte[]> optAttachment = readFileContents(attachment.reference.path, optFile.get());
+                Optional<byte[]> optAttachment = readFileContents(completePath, optFile.get());
                 if (optAttachment.isPresent()) {
-                    attachmentsMap.put(attachment.reference.path, optAttachment.get());
+                    attachmentsMap.put(attachment.uuid, optAttachment.get());
                 }
             }
         }
-        if (msg.replyingToEmail.isPresent()) {
-            return populateAttachmentsMap(msg.replyingToEmail.get(), attachmentsMap);
-        } else if(msg.forwardingToEmail.isPresent()) {
-            return populateAttachmentsMap(msg.forwardingToEmail.get(), attachmentsMap);
+        if(msg.forwardingToEmail.isPresent()) {
+            return populateAttachmentsMap(msg.forwardingToEmail.get(), path, attachmentsMap);
         }
         return attachmentsMap;
     }
@@ -92,12 +116,13 @@ public class EmailSender {
         Optional<byte[]> optEmail = readFileContents(path + "/" + file.getName(), file);
         if (optEmail.isPresent()) {
             EmailMessage msg = Serialize.parse(optEmail.get(), c -> EmailMessage.fromCbor(c));
-            Map<String, byte[]> attachmentsMap = populateAttachmentsMap(msg, new HashMap<>());
+            Map<String, byte[]> attachmentsMap = populateAttachmentsMap(msg, path, new HashMap<>());
             if (validateEmail(msg)) {
                 return Optional.of(new Pair<>(msg, attachmentsMap));
             } else {
                 Optional<FileWrapper> directory = context.getByPath(path).join();
-                deleteEmail(directory.get(), path, file);
+                deleteFile(directory.get(), path, file);
+                //todo delete attachment as well
                 return Optional.empty();
             }
         } else {
