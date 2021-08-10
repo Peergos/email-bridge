@@ -1,8 +1,7 @@
 package peergos.email;
 
-import peergos.shared.display.FileRef;
+import peergos.server.apps.email.EmailBridgeClient;
 import peergos.shared.email.Attachment;
-import peergos.shared.email.EmailAttachmentHelper;
 import peergos.shared.email.EmailMessage;
 import peergos.shared.user.UserContext;
 import peergos.shared.user.fs.AsyncReader;
@@ -24,30 +23,22 @@ public class EmailRetriever {
         this.context = context;
     }
 
-    public boolean retrieveEmailsFromServer(String peergosUsername, Supplier<String> messageIdSupplier,
+    public boolean retrieveEmailsFromServer(String peergosUsername, String emailAddress, Supplier<String> messageIdSupplier,
                                             String imapUserame, String imapPassword) {
-        String path = peergosUsername + "/.apps/email/data/default/pending/inbox";
+
+        EmailBridgeClient bridge = EmailBridgeClient.build(context, peergosUsername, emailAddress);
+
         Function<MimeMessage, Boolean> upload = (msg) -> {
             Pair<EmailMessage, List<RawAttachment>> emailPackage =  EmailConverter.parseMail(msg, messageIdSupplier);
             List<Attachment> attachments = new ArrayList<>();
             for(RawAttachment rawAttachment : emailPackage.right) {
-                Optional<Attachment> optAttachment = uploadAttachment(peergosUsername, rawAttachment);
-                if (optAttachment.isPresent()) {
-                    attachments.add(optAttachment.get());
-                }else {
-                    return false;
-                }
+                Attachment attachment = bridge.uploadAttachment(rawAttachment.filename, rawAttachment.size,
+                        rawAttachment.type, rawAttachment.data);
+                attachments.add(attachment);
             }
             EmailMessage email = emailPackage.left.withAttachments(attachments);
-            Optional<FileWrapper> directory = context.getByPath(path).join();
-            if (directory.isPresent()) {
-                String emailFilename = email.id + ".cbor";
-                byte[] emailData = email.toBytes();
-                if (UploadHelper.upload(context, emailFilename, emailData, directory.get(), path)) {
-                    return true;
-                }
-            }
-            return false;
+            bridge.addToInbox(email);
+            return true;
         };
         try {
             imapClient.retrieveEmails(imapUserame, imapPassword, upload);
@@ -58,21 +49,4 @@ public class EmailRetriever {
             return false;
         }
     }
-    private Optional<Attachment> uploadAttachment(String username, RawAttachment rawAttachment) {
-        AsyncReader.ArrayBacked reader = new AsyncReader.ArrayBacked(rawAttachment.data);
-        int dotIndex = rawAttachment.filename.lastIndexOf('.');
-        String fileExtension = dotIndex > -1 && dotIndex <= rawAttachment.filename.length() -1
-                ?  rawAttachment.filename.substring(dotIndex + 1) : "";
-        ProgressConsumer<Long> monitor = l -> {};
-        try {
-            String uuid = EmailAttachmentHelper.upload(context, username, "default", "pending/inbox",reader,
-                    fileExtension, rawAttachment.size, monitor).get();
-            return Optional.of(new Attachment(rawAttachment.filename, rawAttachment.size, rawAttachment.type, uuid));
-        } catch (Exception e) {
-            e.printStackTrace();
-            System.err.println("Error uploading attachment file: " + rawAttachment.filename + " for user:" + username);
-            return Optional.empty();
-        }
-    }
-
 }

@@ -1,6 +1,7 @@
 package peergos.email;
 
 import peergos.server.Builder;
+import peergos.server.apps.email.EmailBridgeClient;
 import peergos.shared.Crypto;
 import peergos.shared.NetworkAccess;
 import peergos.shared.io.ipfs.api.JSONParser;
@@ -78,10 +79,9 @@ public class EmailBridge {
         //send.run();
         ReceiveTask receive = new ReceiveTask(emailAccountsFilePath);
         //receive.run();
-
         ScheduledExecutorService executor = Executors.newScheduledThreadPool(2);
         executor.scheduleAtFixedRate(send, 0L, 30, TimeUnit.SECONDS);
-        executor.scheduleAtFixedRate(receive, 0L, 30, TimeUnit.SECONDS);
+        executor.scheduleAtFixedRate(receive, 30L, 30, TimeUnit.SECONDS);
         try {
             executor.awaitTermination(Long.MAX_VALUE, TimeUnit.DAYS);
         } catch (InterruptedException e) {
@@ -149,7 +149,8 @@ public class EmailBridge {
                     Supplier<String> messageIdSupplier = () -> "<" + Math.abs(random.nextInt(Integer.MAX_VALUE - 1))
                             + "." + Math.abs(random.nextInt(Integer.MAX_VALUE - 1)) + "@" + domain + ">";
                     Map<String, String> props = entry.getValue();
-                    boolean ok = retriever.retrieveEmailsFromServer(props.get("username"), messageIdSupplier, props.get("imapUsername"), props.get("imapPassword"));
+                    boolean ok = retriever.retrieveEmailsFromServer(props.get("username"), props.get("emailAddress"),
+                            messageIdSupplier, props.get("imapUsername"), props.get("imapPassword"));
                     if (ok) {
                         delayMs = defaultDelayOnFailureMs;
                     } else {

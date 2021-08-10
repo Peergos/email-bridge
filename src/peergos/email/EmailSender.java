@@ -1,6 +1,8 @@
 package peergos.email;
 
+import org.junit.Assert;
 import org.simplejavamail.api.email.Email;
+import peergos.server.apps.email.EmailBridgeClient;
 import peergos.shared.email.Attachment;
 import peergos.shared.email.EmailMessage;
 import peergos.shared.user.UserContext;
@@ -32,57 +34,29 @@ public class EmailSender {
         String path = username + "/.apps/email/data/default/pending/outbox";
         Optional<FileWrapper> directory = context.getByPath(path).join();
         if (directory.isPresent()) {
-            return processOutboundEmails(username, directory.get(), path, emailAddress, smtpUsername, smtpPassword);
+            return processOutboundEmails(username, path, emailAddress, smtpUsername, smtpPassword);
         } else {
             return true;
         }
     }
-    private boolean processOutboundEmails(String username, FileWrapper directory, String path, String emailAddress, String smtpUsername, String smtpPassword) {
-        Set<FileWrapper> files = directory.getChildren(context.crypto.hasher, context.network).join()
-                .stream().filter(f -> !f.isDirectory()).collect(Collectors.toSet());
-        for (FileWrapper file : files) {
-            Optional<Pair<EmailMessage, Map<String, byte[]>>> emailOpt = retrieveEmailFromPending(path, file);
-            if (emailOpt.isPresent()) {
-                Optional<EmailMessage> sentMessage = sendEmail(emailOpt.get().left, emailOpt.get().right, emailAddress, smtpUsername, smtpPassword);
+    private boolean processOutboundEmails(String username, String path, String emailAddress, String smtpUsername, String smtpPassword) {
+        EmailBridgeClient bridge = EmailBridgeClient.build(context, username, emailAddress);
+
+        for(String emailFilename : bridge.listOutbox()) {
+            Pair<FileWrapper, EmailMessage> pendingEmail = bridge.getPendingEmail(emailFilename);
+            FileWrapper file = pendingEmail.left;
+            EmailMessage emailMessage = pendingEmail.right;
+            Optional<Map<String, byte[]>> emailAttachmentsOpt = retrieveEmailAttachments(emailMessage, path, file);
+            if (emailAttachmentsOpt.isPresent()) {
+                Optional<EmailMessage> sentMessage = sendEmail(emailMessage, emailAttachmentsOpt.get(), emailAddress, smtpUsername, smtpPassword);
                 if (sentMessage.isPresent()) {
-                    return afterSendingEmailActions(username, sentMessage.get(), directory, path, file, emailOpt.get().right);
+                    bridge.encryptAndMoveEmailToSent(file, sentMessage.get());
                 } else {
                     return false;
                 }
             }
         }
         return true;
-    }
-    private boolean afterSendingEmailActions(String username, EmailMessage sentMessage, FileWrapper directory,
-                                             String path, FileWrapper file, Map<String, byte[]> attachmentMap) {
-        String sentFolderPath = username + "/.apps/email/data/default/pending/sent";
-        Optional<FileWrapper> sentDirectory = context.getByPath(sentFolderPath).join();
-        String emailFilename = sentMessage.id + ".cbor";
-        byte[] emailData = sentMessage.toBytes();
-        if (UploadHelper.upload(context, emailFilename, emailData, sentDirectory.get(), sentFolderPath)) {
-            if (deleteFile(directory, path, file)) {
-                String sentAttachmentFolderPath = sentFolderPath + "/attachments";
-                Optional<FileWrapper> sentAttachmentDirectory = context.getByPath(sentAttachmentFolderPath).join();
-                for(Map.Entry<String, byte[]> attachmentEntry: attachmentMap.entrySet()){
-                    String attachmentFilename = attachmentEntry.getKey();
-                    byte[] attachmentData = attachmentEntry.getValue();
-                    if (!UploadHelper.upload(context, attachmentFilename, attachmentData, sentAttachmentDirectory.get(), sentAttachmentFolderPath)) {
-                        return false;
-                    }
-                    String inboxAttachmentFolderPath = username + "/.apps/email/data/default/pending/outbox/attachments";
-                    Optional<FileWrapper> inboxAttachmentDirectory = context.getByPath(inboxAttachmentFolderPath).join();
-                    Optional<FileWrapper> attachmentFile = context.getByPath(inboxAttachmentFolderPath + "/" + attachmentFilename).join();
-                    if (!deleteFile(inboxAttachmentDirectory.get(), inboxAttachmentFolderPath, attachmentFile.get())) {
-                        return false;
-                    }
-                }
-                return true;
-            } else {
-                return false;
-            }
-        } else {
-            return false;
-        }
     }
 
     private boolean deleteFile(FileWrapper directory, String path, FileWrapper file) {
@@ -112,20 +86,14 @@ public class EmailSender {
         }
         return attachmentsMap;
     }
-    private Optional<Pair<EmailMessage, Map<String, byte[]>>> retrieveEmailFromPending(String path, FileWrapper file) {
-        Optional<byte[]> optEmail = readFileContents(path + "/" + file.getName(), file);
-        if (optEmail.isPresent()) {
-            EmailMessage msg = Serialize.parse(optEmail.get(), c -> EmailMessage.fromCbor(c));
-            Map<String, byte[]> attachmentsMap = populateAttachmentsMap(msg, path, new HashMap<>());
-            if (validateEmail(msg)) {
-                return Optional.of(new Pair<>(msg, attachmentsMap));
-            } else {
-                Optional<FileWrapper> directory = context.getByPath(path).join();
-                deleteFile(directory.get(), path, file);
-                //todo delete attachment as well
-                return Optional.empty();
-            }
+    private Optional<Map<String, byte[]>> retrieveEmailAttachments(EmailMessage msg, String path, FileWrapper file) {
+        Map<String, byte[]> attachmentsMap = populateAttachmentsMap(msg, path, new HashMap<>());
+        if (validateEmail(msg)) {
+            return Optional.of(attachmentsMap);
         } else {
+            Optional<FileWrapper> directory = context.getByPath(path).join();
+            deleteFile(directory.get(), path, file);
+            //todo delete attachment as well
             return Optional.empty();
         }
     }
