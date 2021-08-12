@@ -93,7 +93,13 @@ public class EmailSender {
         } else {
             Optional<FileWrapper> directory = context.getByPath(path).join();
             deleteFile(directory.get(), path, file);
-            //todo delete attachment as well
+
+            FileWrapper attachmentDirectory = context.getByPath(path + "/attachments").join().get();
+            String attachmentPath = path + "/attachments";
+            for(String attachmentFilename : attachmentsMap.keySet()) {
+                FileWrapper attachmentFile = context.getByPath(attachmentPath + "/" + attachmentFilename).join().get();
+                deleteFile(attachmentDirectory, attachmentPath, attachmentFile);
+            }
             return Optional.empty();
         }
     }

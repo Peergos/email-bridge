@@ -19,15 +19,11 @@ import peergos.shared.email.EmailMessage;
 import peergos.shared.user.*;
 import peergos.shared.user.fs.AsyncReader;
 import peergos.shared.user.fs.FileWrapper;
-import peergos.shared.util.ProgressConsumer;
-import peergos.shared.util.Serialize;
 
 import javax.mail.MessagingException;
 import javax.mail.internet.MimeMessage;
 import java.io.ByteArrayOutputStream;
 import java.net.URL;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.function.Function;
@@ -36,7 +32,6 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 public class MockTest {
-    private static final Logger LOG = Logging.LOG();
 
     private static Args args = peergos.server.tests.UserTests.buildArgs().with("useIPFS", "false").with("enable-gc", "false");
     private static Random random = new Random();
@@ -149,6 +144,8 @@ public class MockTest {
     @Test
     public void receiveTest() {
         UserContext userContext = createNewEmailUser();
+        String attachmentContent = "hello!";
+        byte[] attachmentData = attachmentContent.getBytes();
         String emailAddress = userContext.username + "@example.com";
         Email event = EmailBuilder.startingBlank()
                 .fixingMessageId("email-id")
@@ -156,7 +153,7 @@ public class MockTest {
                 .to(emailAddress)
                 .withSubject("hello")
                 .withPlainText("email contents")
-                .withAttachment("filename.txt", randomData(100), "txt")
+                .withAttachment("filename.txt", attachmentData, "text/plain")
                 .buildEmail();
 
         MimeMessage mimeMessage = org.simplejavamail.converter.EmailConverter.emailToMimeMessage(event);
@@ -178,9 +175,11 @@ public class MockTest {
         Assert.assertTrue("received email", ! incoming.isEmpty());
         EmailMessage msg = incoming.get(0);
         Assert.assertTrue(msg.attachments.size() > 0);
+        client.moveToPrivateInbox(msg);
         Optional<FileWrapper> attachment =  client.retrieveAttachment( msg.attachments.get(0).uuid).join();
         Assert.assertTrue(attachment.isPresent());
-
+        String readAttachmentContents = new String(readFileContents(userContext, attachment.get()).get());
+        Assert.assertTrue(attachmentContent.equals(readAttachmentContents));
     }
 
     private Optional<byte[]> readFileContents(UserContext context, FileWrapper file) {
