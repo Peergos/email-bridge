@@ -112,8 +112,8 @@ public class MockTest {
     @Test
     public void sendTest() {
         UserContext userContext = createNewEmailUser();
-
-        byte[] attachmentData = "hello!".getBytes();
+        String attachmentContent = "hello!";
+        byte[] attachmentData = attachmentContent.getBytes();
         RawAttachment rawAttachment = new RawAttachment("filename.txt", attachmentData.length,
                 "text/plain", attachmentData);
 
@@ -134,11 +134,16 @@ public class MockTest {
         String smtpPassword = "";
         sender.sendEmails(userContext.username, userContext.username + "@example.com",smtpUsername, smtpPassword);
         Assert.assertTrue(sentEmail.size() > 0);
-        String sentPath = userContext.username + "/.apps/email/data/default/pending/sent";
-        Optional<FileWrapper> sentDirOpt = userContext.getByPath(sentPath).join();
-        List<FileWrapper> sentEmails = sentDirOpt.get().getChildren(crypto.hasher, network).join()
-                .stream().filter(f -> !f.isDirectory()).collect(Collectors.toList());
-        Assert.assertTrue(sentEmails.size() == 1);
+        App emailApp = App.init(userContext, "email").join();
+        EmailClient client = EmailClient.load(emailApp, crypto, userContext).join();
+        List<EmailMessage> emailsSent = client.getNewSent().join();
+        Assert.assertTrue(emailsSent.size() == 1);
+        EmailMessage msg = emailsSent.get(0);
+        client.moveToPrivateSent(msg);
+        Optional<FileWrapper> attachment2 =  client.retrieveAttachment( msg.attachments.get(0).uuid).join();
+        Assert.assertTrue(attachment2.isPresent());
+        String readAttachmentContents = new String(readFileContents(userContext, attachment2.get()).get());
+        Assert.assertTrue(attachmentContent.equals(readAttachmentContents));
     }
 
     @Test

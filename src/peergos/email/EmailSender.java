@@ -9,7 +9,6 @@ import peergos.shared.user.UserContext;
 import peergos.shared.user.fs.AsyncReader;
 import peergos.shared.user.fs.FileWrapper;
 import peergos.shared.util.Pair;
-import peergos.shared.util.Serialize;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.file.Path;
@@ -17,9 +16,8 @@ import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.*;
-import java.util.stream.Collectors;
 
-public class EmailSender {
+public class EmailSender extends EmailTask {
 
     private final SMTPMailer mailer;
     private final UserContext context;
@@ -40,8 +38,10 @@ public class EmailSender {
         }
     }
     private boolean processOutboundEmails(String username, String path, String emailAddress, String smtpUsername, String smtpPassword) {
-        EmailBridgeClient bridge = EmailBridgeClient.build(context, username, emailAddress);
-
+        EmailBridgeClient bridge = buildEmailBridgeClient(context, username, emailAddress);
+        if (bridge == null) {
+            return true;// user not setup yet
+        }
         for(String emailFilename : bridge.listOutbox()) {
             Pair<FileWrapper, EmailMessage> pendingEmail = bridge.getPendingEmail(emailFilename);
             FileWrapper file = pendingEmail.left;
@@ -50,7 +50,7 @@ public class EmailSender {
             if (emailAttachmentsOpt.isPresent()) {
                 Optional<EmailMessage> sentMessage = sendEmail(emailMessage, emailAttachmentsOpt.get(), emailAddress, smtpUsername, smtpPassword);
                 if (sentMessage.isPresent()) {
-                    bridge.encryptAndMoveEmailToSent(file, sentMessage.get());
+                    bridge.encryptAndMoveEmailToSent(file, sentMessage.get(), emailAttachmentsOpt.get());
                 } else {
                     return false;
                 }
