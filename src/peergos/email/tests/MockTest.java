@@ -24,8 +24,11 @@ import javax.mail.MessagingException;
 import javax.mail.internet.MimeMessage;
 import java.io.ByteArrayOutputStream;
 import java.net.URL;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.logging.Logger;
@@ -74,8 +77,8 @@ public class MockTest {
                 network, crypto);
 
         App emailApp = App.init(userContext, "email").join();
-        EmailClient client = EmailClient.load(emailApp, crypto, userContext).join();
-        client.connectToBridge(emailBridgeContext.username).join();
+        EmailClient client = EmailClient.load(emailApp, crypto).join();
+        client.connectToBridge(userContext, emailBridgeContext.username).join();
 
         emailBridgeContext.sendReplyFollowRequest(emailBridgeContext.processFollowRequests().join().get(0), true, true).join();
         userContext.processFollowRequests().join();
@@ -95,16 +98,16 @@ public class MockTest {
                 Optional.empty(), Optional.empty(), Optional.empty());
 
         App emailApp = App.init(userContext, "email").join();
-        EmailClient client = EmailClient.load(emailApp, crypto, userContext).join();
+        EmailClient client = EmailClient.load(emailApp, crypto).join();
         boolean sentEmail = client.send(email).join();
         Assert.assertTrue("email sent", sentEmail);
     }
 
     private Attachment createAttachment(UserContext userContext, RawAttachment rawAttachment) {
         App emailApp = App.init(userContext, "email").join();
-        EmailClient client = EmailClient.load(emailApp, crypto, userContext).join();
+        EmailClient client = EmailClient.load(emailApp, crypto).join();
 
-        String uuid = client.uploadAttachment(new AsyncReader.ArrayBacked(rawAttachment.data),
+        String uuid = client.uploadAttachment(userContext, new AsyncReader.ArrayBacked(rawAttachment.data),
                 rawAttachment.filename.substring(rawAttachment.filename.lastIndexOf('.') + 1), rawAttachment.data.length, t -> {}).join();
         return new Attachment(rawAttachment.filename, rawAttachment.data.length, rawAttachment.type, uuid);
     }
@@ -135,15 +138,22 @@ public class MockTest {
         sender.sendEmails(userContext.username, userContext.username + "@example.com",smtpUsername, smtpPassword);
         Assert.assertTrue(sentEmail.size() > 0);
         App emailApp = App.init(userContext, "email").join();
-        EmailClient client = EmailClient.load(emailApp, crypto, userContext).join();
+        EmailClient client = EmailClient.load(emailApp, crypto).join();
         List<EmailMessage> emailsSent = client.getNewSent().join();
         Assert.assertTrue(emailsSent.size() == 1);
         EmailMessage msg = emailsSent.get(0);
         client.moveToPrivateSent(msg);
-        Optional<FileWrapper> attachment2 =  client.retrieveAttachment( msg.attachments.get(0).uuid).join();
+        Optional<FileWrapper> attachment2 =  retrieveAttachment(userContext, msg.attachments.get(0).uuid).join();
         Assert.assertTrue(attachment2.isPresent());
         String readAttachmentContents = new String(readFileContents(userContext, attachment2.get()).get());
         Assert.assertTrue(attachmentContent.equals(readAttachmentContents));
+    }
+
+    private static CompletableFuture<Optional<FileWrapper>> retrieveAttachment(UserContext context, String uuid) {
+        Path attachmentDir = Paths.get("default", "attachments", uuid);
+        Path emailDataDir = Paths.get(".apps", "email", "data");
+        Path path = Paths.get(context.username).resolve(emailDataDir).resolve(attachmentDir);
+        return context.getByPath(path);
     }
 
     @Test
@@ -174,14 +184,14 @@ public class MockTest {
         retriever.retrieveEmailsFromServer(userContext.username, emailAddress, messageIdSupplier, "imapUsername", "imapPwd");
 
         App emailApp = App.init(userContext, "email").join();
-        EmailClient client = EmailClient.load(emailApp, crypto, userContext).join();
+        EmailClient client = EmailClient.load(emailApp, crypto).join();
 
         List<EmailMessage> incoming = client.getNewIncoming().join();
         Assert.assertTrue("received email", ! incoming.isEmpty());
         EmailMessage msg = incoming.get(0);
         Assert.assertTrue(msg.attachments.size() > 0);
         client.moveToPrivateInbox(msg);
-        Optional<FileWrapper> attachment =  client.retrieveAttachment( msg.attachments.get(0).uuid).join();
+        Optional<FileWrapper> attachment =  retrieveAttachment(userContext, msg.attachments.get(0).uuid).join();
         Assert.assertTrue(attachment.isPresent());
         String readAttachmentContents = new String(readFileContents(userContext, attachment.get()).get());
         Assert.assertTrue(attachmentContent.equals(readAttachmentContents));
