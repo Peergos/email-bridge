@@ -107,8 +107,7 @@ public class MockTest {
         App emailApp = App.init(userContext, "email").join();
         EmailClient client = EmailClient.load(emailApp, crypto).join();
 
-        String uuid = client.uploadAttachment(userContext, new AsyncReader.ArrayBacked(rawAttachment.data),
-                rawAttachment.filename.substring(rawAttachment.filename.lastIndexOf('.') + 1), rawAttachment.data.length, t -> {}).join();
+        String uuid = client.uploadAttachment(rawAttachment.data).join();
         return new Attachment(rawAttachment.filename, rawAttachment.data.length, rawAttachment.type, uuid);
     }
 
@@ -143,17 +142,9 @@ public class MockTest {
         Assert.assertTrue(emailsSent.size() == 1);
         EmailMessage msg = emailsSent.get(0);
         client.moveToPrivateSent(msg);
-        Optional<FileWrapper> attachment2 =  retrieveAttachment(userContext, msg.attachments.get(0).uuid).join();
-        Assert.assertTrue(attachment2.isPresent());
-        String readAttachmentContents = new String(readFileContents(userContext, attachment2.get()).get());
+        byte[] attachment2 =  client.getAttachment(msg.attachments.get(0).uuid).join();
+        String readAttachmentContents = new String(attachment2);
         Assert.assertTrue(attachmentContent.equals(readAttachmentContents));
-    }
-
-    private static CompletableFuture<Optional<FileWrapper>> retrieveAttachment(UserContext context, String uuid) {
-        Path attachmentDir = Paths.get("default", "attachments", uuid);
-        Path emailDataDir = Paths.get(".apps", "email", "data");
-        Path path = Paths.get(context.username).resolve(emailDataDir).resolve(attachmentDir);
-        return context.getByPath(path);
     }
 
     @Test
@@ -191,25 +182,11 @@ public class MockTest {
         EmailMessage msg = incoming.get(0);
         Assert.assertTrue(msg.attachments.size() > 0);
         client.moveToPrivateInbox(msg);
-        Optional<FileWrapper> attachment =  retrieveAttachment(userContext, msg.attachments.get(0).uuid).join();
-        Assert.assertTrue(attachment.isPresent());
-        String readAttachmentContents = new String(readFileContents(userContext, attachment.get()).get());
+        byte[] attachment =  client.getAttachment(msg.attachments.get(0).uuid).join();
+        String readAttachmentContents = new String(attachment);
         Assert.assertTrue(attachmentContent.equals(readAttachmentContents));
     }
 
-    private Optional<byte[]> readFileContents(UserContext context, FileWrapper file) {
-        try (ByteArrayOutputStream fout = new ByteArrayOutputStream()){
-            long size = file.getFileProperties().size;
-            byte[] buf = new byte[(int)size];
-            AsyncReader reader = file.getInputStream(context.network, context.crypto, c -> {}).get();
-            reader.readIntoArray(buf, 0, buf.length).get();
-            fout.write(buf);
-            return Optional.of(fout.toByteArray());
-        } catch (Exception e) {
-            e.printStackTrace();
-            return Optional.empty();
-        }
-    }
     public static byte[] randomData(int length) {
         byte[] data = new byte[length];
         random.nextBytes(data);
