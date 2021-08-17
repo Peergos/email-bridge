@@ -50,6 +50,19 @@ public class EmailConverter {
                 e.printStackTrace();
             }
         }
+        //now embedded attachments
+        for(Map.Entry<String, DataSource> embeddedAttachments : components.getCidMap().entrySet()) {
+            DataSource source = embeddedAttachments.getValue();
+            try {
+                String type = source.getContentType();
+                String name = source.getName();
+                byte[] data = readResource(source.getInputStream());
+                rawAttachmentList.add(new RawAttachment(name, data.length, type, data));
+            } catch(Exception e) {
+                e.printStackTrace();
+            }
+        }
+
         String calendarText = components.getCalendarContent();
         if (calendarText == null) {
             calendarText = "";
