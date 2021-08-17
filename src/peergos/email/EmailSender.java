@@ -28,6 +28,9 @@ public class EmailSender extends EmailTask {
         this.context = context;
     }
 
+    public void refresh() {
+        context.getSocialState().join();
+    }
     public boolean sendEmails(String username, String emailAddress, String smtpUsername, String smtpPassword) {
         String path = username + "/.apps/email/data/default/pending/outbox";
         Optional<FileWrapper> directory = context.getByPath(path).join();

@@ -103,6 +103,7 @@ public class EmailBridge {
                 return;
             }
             running = true;
+            sender.refresh();
             Map<String, Map<String, String>> accounts = readEmailAccountFile(pathToAccountsFile);
             System.out.println(LocalDateTime.now() + " Running Task SendTask. Accounts: " + accounts.size());
             int delayMs = defaultDelayOnFailureMs;
