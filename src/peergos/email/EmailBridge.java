@@ -6,15 +6,19 @@ import peergos.shared.Crypto;
 import peergos.shared.NetworkAccess;
 import peergos.shared.io.ipfs.api.JSONParser;
 import peergos.shared.user.UserContext;
+import peergos.shared.util.Futures;
 
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 public class EmailBridge {
@@ -75,10 +79,23 @@ public class EmailBridge {
     }
 
     public void start(Path emailAccountsFilePath) {
+
         SendTask send = new SendTask(emailAccountsFilePath);
         //send.run();
         ReceiveTask receive = new ReceiveTask(emailAccountsFilePath);
         //receive.run();
+
+        Function<Void, Void> shutdownRequest = s -> {
+            System.out.println("Shutdown request received !");
+            send.requestShutdown().join();
+            receive.requestShutdown().join();
+            System.out.println("Shutdown request completed !");
+            return null;
+        };
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            shutdownRequest.apply(null);
+        }));
+
         ScheduledExecutorService executor = Executors.newScheduledThreadPool(2);
         executor.scheduleAtFixedRate(send, 0L, 30, TimeUnit.SECONDS);
         executor.scheduleAtFixedRate(receive, 30L, 30, TimeUnit.SECONDS);
@@ -90,9 +107,22 @@ public class EmailBridge {
         executor.shutdown();
     }
 
-    class SendTask implements Runnable {
+    abstract class Task implements Runnable {
+        protected volatile CompletableFuture<Boolean> shutdownFuture = Futures.incomplete();
+        protected volatile boolean shutdownRequested = false;
+        protected volatile boolean running = false;
+        public abstract void run();
+        public CompletableFuture<Boolean> requestShutdown() {
+            shutdownRequested = true;
+            if (!running) {
+                shutdownFuture.complete(true);
+            }
+            return shutdownFuture;
+        }
+    }
+
+    class SendTask extends Task {
         private final Path pathToAccountsFile;
-        private volatile boolean running = false;
         public SendTask(Path pathToAccountsFile) {
             this.pathToAccountsFile = pathToAccountsFile;
         }
@@ -120,15 +150,18 @@ public class EmailBridge {
                     t.printStackTrace();
                     delayMs = backOff(delayMs);
                 }
+                if (shutdownRequested) {
+                    shutdownFuture.complete(true);
+                    return;
+                }
             }
             System.out.println(LocalDateTime.now() + " Finished Task SendTask.");
             running = false;
         }
     }
-    class ReceiveTask implements Runnable {
+    class ReceiveTask extends Task {
         private final Path pathToAccountsFile;
         private final Random random = new Random();
-        private volatile boolean running = false;
 
         public ReceiveTask(Path pathToAccountsFile) {
             this.pathToAccountsFile = pathToAccountsFile;
@@ -160,6 +193,10 @@ public class EmailBridge {
                 } catch (Throwable t) {
                     t.printStackTrace();
                     delayMs = backOff(delayMs);
+                }
+                if (shutdownRequested) {
+                    shutdownFuture.complete(true);
+                    return;
                 }
             }
             System.out.println(LocalDateTime.now() + " Finished Task ReceiveTask.");
