@@ -14,7 +14,9 @@ public class Main {
     public static final Path DEFAULT_PEERGOS_DIR_PATH =
             Paths.get(System.getProperty("user.home"), ".email-bridge");
     private static final String EMAIL_ACCOUNTS_CONFIG_FILENAME = "accounts.json";
+    private static final String EMAIL_BRIDGE_CONFIG_FILENAME = "config.txt";
     private static final Path emailAccountsFilePath = DEFAULT_PEERGOS_DIR_PATH.resolve(EMAIL_ACCOUNTS_CONFIG_FILENAME);
+    private static final Path configFilePath = DEFAULT_PEERGOS_DIR_PATH.resolve(EMAIL_BRIDGE_CONFIG_FILENAME);
 
     public static Command<Boolean> EMAIL_BRIDGE = new Command<>("Run EmailBridge",
             "Run EmailBridge",
@@ -52,9 +54,20 @@ public class Main {
     java -jar EmailBridge.jar -username blah -password qwerty -peergos-url http://localhost:8000 -is-public-server false -smtp-host smtpHost -smtp-port 1 -imap-host imapHost -imap-port 1
     example accounts.json contents:
     [{ "username": "test", "emailAddress": "", "smtpUsername": "", "smtpPassword": "", "imapUsername": "", "imapPassword": ""}]
+    example config.txt contents:
+    sendIntervalSeconds: 30
+    receiveInitialDelaySeconds: 30
+    receiveIntervalSeconds: 30
+    maxNumberOfUnreadEmails: 100
      */
     public static void main(String[] args) {
         System.out.println("starting EmailBridge");
+        if (! configFilePath.toFile().exists()) {
+            System.err.println("Email-Bridge config file does not exist. expected path:" + configFilePath);
+            System.exit(1);
+        } else {
+            System.out.println("Using Email-Bridge config file at path:" + configFilePath);
+        }
         if (! emailAccountsFilePath.toFile().exists()) {
             System.err.println("Email account file does not exist. expected path:" + emailAccountsFilePath);
             System.exit(1);
@@ -63,7 +76,7 @@ public class Main {
         }
         EMAIL_BRIDGE.main(Args.parse(args));
         if (emailBridge != null) {
-            emailBridge.start(emailAccountsFilePath);
+            emailBridge.start(configFilePath, emailAccountsFilePath);
         }
     }
 }

@@ -8,6 +8,8 @@ import peergos.shared.io.ipfs.api.JSONParser;
 import peergos.shared.user.UserContext;
 import peergos.shared.util.Futures;
 
+import java.io.FileReader;
+import java.io.IOException;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -78,11 +80,37 @@ public class EmailBridge {
         return accounts;
     }
 
-    public void start(Path emailAccountsFilePath) {
+    private static Properties readConfigFile(Path emailBridgeConfigFilePath) {
+        Properties props = new Properties();
+        if (! emailBridgeConfigFilePath.toFile().exists())
+            return props;
+        try (FileReader fr = new FileReader(emailBridgeConfigFilePath.toFile())){
+            props.load(fr);
+            List<String> fields = Arrays.asList("sendIntervalSeconds", "receiveInitialDelaySeconds", "receiveIntervalSeconds", "maxNumberOfUnreadEmails");
+            for(String field : fields) {
+                if (!props.containsKey(field)) {
+                    System.err.println("Field:" + field + " not found");
+                    throw new IllegalStateException("Email-Bridge config file invalid");
+                }
+                try {
+                    Integer.parseInt(props.getProperty(field));
+                } catch (NumberFormatException ioe) {
+                    System.err.println("Field:" + field + " value not valid");
+                    throw new IllegalStateException("Email-Bridge config file value for " + field + " is invalid");
+                }
+            }
+        } catch (IOException ioe) {
+            ioe.printStackTrace();
+        }
+        return props;
+    }
 
-        SendTask send = new SendTask(emailAccountsFilePath);
+    public void start(Path configFilePath, Path emailAccountsFilePath) {
+        Properties config = readConfigFile(configFilePath);
+
+        SendTask send = new SendTask(config, emailAccountsFilePath);
         //send.run();
-        ReceiveTask receive = new ReceiveTask(emailAccountsFilePath);
+        ReceiveTask receive = new ReceiveTask(config, emailAccountsFilePath);
         //receive.run();
 
         Function<Void, Void> shutdownRequest = s -> {
@@ -97,8 +125,9 @@ public class EmailBridge {
         }));
 
         ScheduledExecutorService executor = Executors.newScheduledThreadPool(2);
-        executor.scheduleAtFixedRate(send, 0L, 30, TimeUnit.SECONDS);
-        executor.scheduleAtFixedRate(receive, 30L, 30, TimeUnit.SECONDS);
+        executor.scheduleAtFixedRate(send, 0L, Integer.parseInt(config.getProperty("sendIntervalSeconds")), TimeUnit.SECONDS);
+        executor.scheduleAtFixedRate(receive, Integer.parseInt(config.getProperty("receiveInitialDelaySeconds")),
+                Integer.parseInt(config.getProperty("receiveIntervalSeconds")), TimeUnit.SECONDS);
         try {
             executor.awaitTermination(Long.MAX_VALUE, TimeUnit.DAYS);
         } catch (InterruptedException e) {
@@ -108,10 +137,19 @@ public class EmailBridge {
     }
 
     abstract class Task implements Runnable {
+        protected final Path pathToAccountsFile;
+        protected final Properties config;
+
         protected volatile CompletableFuture<Boolean> shutdownFuture = Futures.incomplete();
         protected volatile boolean shutdownRequested = false;
         protected volatile boolean running = false;
+
+        public Task(Properties config, Path pathToAccountsFile) {
+            this.config = config;
+            this.pathToAccountsFile = pathToAccountsFile;
+        }
         public abstract void run();
+
         public CompletableFuture<Boolean> requestShutdown() {
             shutdownRequested = true;
             if (!running) {
@@ -122,9 +160,8 @@ public class EmailBridge {
     }
 
     class SendTask extends Task {
-        private final Path pathToAccountsFile;
-        public SendTask(Path pathToAccountsFile) {
-            this.pathToAccountsFile = pathToAccountsFile;
+        public SendTask(Properties config, Path pathToAccountsFile) {
+            super(config, pathToAccountsFile);
         }
         @Override
         public void run() {
@@ -134,6 +171,7 @@ public class EmailBridge {
             }
             running = true;
             sender.refresh();
+
             Map<String, Map<String, String>> accounts = readEmailAccountFile(pathToAccountsFile);
             System.out.println(LocalDateTime.now() + " Running Task SendTask. Accounts: " + accounts.size());
             int delayMs = defaultDelayOnFailureMs;
@@ -160,11 +198,10 @@ public class EmailBridge {
         }
     }
     class ReceiveTask extends Task {
-        private final Path pathToAccountsFile;
         private final Random random = new Random();
 
-        public ReceiveTask(Path pathToAccountsFile) {
-            this.pathToAccountsFile = pathToAccountsFile;
+        public ReceiveTask(Properties config, Path pathToAccountsFile) {
+            super(config, pathToAccountsFile);
         }
         @Override
         public void run() {
@@ -183,8 +220,9 @@ public class EmailBridge {
                     Supplier<String> messageIdSupplier = () -> "<" + Math.abs(random.nextInt(Integer.MAX_VALUE - 1))
                             + "." + Math.abs(random.nextInt(Integer.MAX_VALUE - 1)) + "@" + domain + ">";
                     Map<String, String> props = entry.getValue();
+                    int maxNumberOfUnreadEmails = Integer.parseInt(config.getProperty("maxNumberOfUnreadEmails"));
                     boolean ok = retriever.retrieveEmailsFromServer(props.get("username"), props.get("emailAddress"),
-                            messageIdSupplier, props.get("imapUsername"), props.get("imapPassword"));
+                            messageIdSupplier, props.get("imapUsername"), props.get("imapPassword"), maxNumberOfUnreadEmails);
                     if (ok) {
                         delayMs = defaultDelayOnFailureMs;
                     } else {

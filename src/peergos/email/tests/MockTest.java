@@ -172,7 +172,8 @@ public class MockTest {
                 uploadFunc.apply(mimeMessage);
             }
         }, emailBridgeContext);
-        retriever.retrieveEmailsFromServer(userContext.username, emailAddress, messageIdSupplier, "imapUsername", "imapPwd");
+        retriever.retrieveEmailsFromServer(userContext.username, emailAddress, messageIdSupplier,
+                "imapUsername", "imapPwd", 100);
 
         App emailApp = App.init(userContext, "email").join();
         EmailClient client = EmailClient.load(emailApp, crypto).join();
