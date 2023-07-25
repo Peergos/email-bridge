@@ -42,7 +42,7 @@
 
   <target name="compile" depends="clean, init"
         description="compile the source">
-    <javac includeantruntime="false" destdir="${build}" debug="true" debuglevel="lines,vars,source">
+    <javac includeantruntime="false" destdir="${build}" debug="true" debuglevel="lines,vars,source" source="11" target="11">
       <src>
   	    <pathelement location="${src}"/>
       </src>

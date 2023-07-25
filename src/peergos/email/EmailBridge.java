@@ -1,10 +1,13 @@
 package peergos.email;
 
 import peergos.server.Builder;
+import peergos.server.Main;
 import peergos.server.apps.email.EmailBridgeClient;
 import peergos.shared.Crypto;
 import peergos.shared.NetworkAccess;
 import peergos.shared.io.ipfs.api.JSONParser;
+import peergos.shared.login.mfa.MultiFactorAuthRequest;
+import peergos.shared.login.mfa.MultiFactorAuthResponse;
 import peergos.shared.user.UserContext;
 import peergos.shared.util.Futures;
 
@@ -43,7 +46,8 @@ public class EmailBridge {
         } catch (Exception e) {
             throw new IllegalStateException("Unable to connect to Peergos instance");
         }
-        UserContext context = UserContext.signIn(username, password, network, crypto).get();
+
+        UserContext context = UserContext.signIn(username, password, Main::getMfaResponseCLI, network, crypto).get();
 
         SMTPMailer smtpMailer = new SMTPMailer(smtpHost, smtpPort);
         EmailSender sender = new EmailSender(smtpMailer, context);
