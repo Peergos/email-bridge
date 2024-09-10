@@ -40,13 +40,13 @@ config.txt
 Where username/password is the designated peergos user created for this purpose
 
 **Usage**
-Example with 2 users, 'bridge' and alice
+Example with 2 users, 'bridge' and 'alice'
 1. Make sure instance of Peergos is running
 2. Create the bridge user for use by the email bridge
-3. Log into peergos as alice with ?email=true added to URL and click on the email icon on the UI toolbar
+3. Install and run email client app
 4. Enter email bridge username when prompted (this sends a friend request to bridge)
 5. Log in as bridge and 'allow and follow back' the friend request
 6. From alice's perspective, confirm alice now has bridge listed as a friend   
 6. Update the properties used in the execution and configuration sections above
 7. Start email bridge   
-
+8. Log in again as alice and run email client app again
