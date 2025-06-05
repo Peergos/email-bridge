@@ -14,7 +14,7 @@ public class Main {
     public static final Path DEFAULT_PEERGOS_DIR_PATH =
             Paths.get(System.getProperty("user.home"), ".email-bridge");
     private static final String EMAIL_ACCOUNTS_CONFIG_FILENAME = "accounts.json";
-    private static final String EMAIL_BRIDGE_CONFIG_FILENAME = "config.txt";
+    private static final String EMAIL_BRIDGE_CONFIG_FILENAME = "config.properties";
     private static final Path emailAccountsFilePath = DEFAULT_PEERGOS_DIR_PATH.resolve(EMAIL_ACCOUNTS_CONFIG_FILENAME);
     private static final Path configFilePath = DEFAULT_PEERGOS_DIR_PATH.resolve(EMAIL_BRIDGE_CONFIG_FILENAME);
 
@@ -22,8 +22,6 @@ public class Main {
             "Run EmailBridge",
             args -> {
                 try {
-                    String username = args.getArg("username");
-                    String password = args.getArg("password");
                     String url = args.getArg("peergos-url");
                     boolean isPublicServer = args.getBoolean("is-public-server");
                     String smtpHost = args.getArg("smtp-host");
@@ -31,7 +29,7 @@ public class Main {
                     String imapHost = args.getArg("imap-host");
                     int imapPort = args.getInt("imap-port");
 
-                    emailBridge = EmailBridge.build(username, password, url, isPublicServer
+                    emailBridge = EmailBridge.build(url, isPublicServer
                             , smtpHost, smtpPort, imapHost, imapPort);
 
                 } catch (Throwable t) {
@@ -40,8 +38,6 @@ public class Main {
                 return true;
             },
             Arrays.asList(
-                    new Command.Arg("username", "username that represents the email bridge in peergos", true),
-                    new Command.Arg("password", "password for the associated email bridge username", true),
                     new Command.Arg("peergos-url", "url of peergos instance where the email bridge user is registered", true),
                     new Command.Arg("is-public-server", "is url represented by peergos.url public", true),
                     new Command.Arg("smtp-host", "smtp host name", true),
@@ -51,9 +47,10 @@ public class Main {
             )
     );
     /*
-    java -jar EmailBridge.jar -username blah -password qwerty -peergos-url http://localhost:8000 -is-public-server false -smtp-host smtpHost -smtp-port 1 -imap-host imapHost -imap-port 1
+    java -jar EmailBridge.jar -peergos-url http://localhost:8000 -is-public-server false -smtp-host smtpHost -smtp-port 1 -imap-host imapHost -imap-port 1
     example accounts.json contents:
-    [{ "username": "test", "emailAddress": "", "smtpUsername": "", "smtpPassword": "", "imapUsername": "", "imapPassword": ""}]
+    [{ "username": "test", "secretLink": "", "emailAddress": "", "smtpUsername": "", "smtpPassword": "", "imapUsername": "", "imapPassword": ""}]
+
     example config.txt contents:
     sendIntervalSeconds: 30
     receiveInitialDelaySeconds: 30
@@ -61,6 +58,7 @@ public class Main {
     maxNumberOfUnreadEmails: 100
      */
     public static void main(String[] args) {
+//        String[] args = {"-peergos-url", "http://localhost:8000", "-is-public-server", "false", "-smtp-host", "localhost", "-smtp-port", "465", "-imap-host", "localhost", "-imap-port", "993" };
         System.out.println("starting EmailBridge");
         if (! configFilePath.toFile().exists()) {
             System.err.println("Email-Bridge config file does not exist. expected path:" + configFilePath);

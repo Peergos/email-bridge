@@ -1,6 +1,7 @@
 package peergos.email;
 
 import org.simplejavamail.api.email.*;
+import org.simplejavamail.converter.internal.mimemessage.MimeDataSource;
 import org.simplejavamail.converter.internal.mimemessage.MimeMessageParser;
 import org.simplejavamail.email.EmailBuilder;
 import peergos.shared.display.FileRef;
@@ -8,10 +9,10 @@ import peergos.shared.email.Attachment;
 import peergos.shared.email.EmailMessage;
 import peergos.shared.util.Pair;
 
-import javax.activation.DataSource;
-import javax.mail.Message;
-import javax.mail.internet.MimeMessage;
-import javax.mail.util.ByteArrayDataSource;
+import jakarta.activation.DataSource;
+import jakarta.mail.Message;
+import jakarta.mail.internet.MimeMessage;
+import jakarta.mail.util.ByteArrayDataSource;
 import java.io.*;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -38,12 +39,11 @@ public class EmailConverter {
         LocalDateTime created = LocalDateTime.ofInstant(sentDate.toInstant(), ZoneId.of("UTC"));
 
         List<RawAttachment> rawAttachmentList = new ArrayList<>();
-        for(Map.Entry<String, DataSource> attachment : components.getAttachmentList().entrySet()) {
-            DataSource source = attachment.getValue();
+        for(MimeDataSource attachment : components.getAttachmentList()) {
+            DataSource source = attachment.getDataSource();
             try {
                 String type = source.getContentType();
-                String name = source.getName();
-                String resName = attachment.getKey();
+                String resName = attachment.getName();
                 byte[] data = readResource(source.getInputStream());
                 rawAttachmentList.add(new RawAttachment(resName, data.length, type, data));
             } catch(Exception e) {
@@ -51,8 +51,9 @@ public class EmailConverter {
             }
         }
         //now embedded attachments
-        for(Map.Entry<String, DataSource> embeddedAttachments : components.getCidMap().entrySet()) {
-            DataSource source = embeddedAttachments.getValue();
+        for(Map.Entry<String, MimeDataSource> embeddedAttachments : components.getCidMap().entrySet()) {
+            MimeDataSource embeddedSource = embeddedAttachments.getValue();
+            DataSource source = embeddedSource.getDataSource();
             try {
                 String type = source.getContentType();
                 String name = source.getName();
@@ -111,7 +112,7 @@ public class EmailConverter {
                 forwardedEmail.getFromRecipient().getAddress(),
                 formatAddressList(
                         forwardedEmail.getRecipients().stream()
-                            .filter(r -> r.getType() == javax.mail.Message.RecipientType.TO)
+                            .filter(r -> r.getType() == jakarta.mail.Message.RecipientType.TO)
                             .collect(Collectors.toList()))
             );
             builder = builder.withPlainText(forwardedText + "\n" + plainText);

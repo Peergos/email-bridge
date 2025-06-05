@@ -9,6 +9,7 @@ import peergos.shared.io.ipfs.api.JSONParser;
 import peergos.shared.login.mfa.MultiFactorAuthRequest;
 import peergos.shared.login.mfa.MultiFactorAuthResponse;
 import peergos.shared.user.UserContext;
+import peergos.shared.user.fs.SecretLink;
 import peergos.shared.util.Futures;
 
 import java.io.FileReader;
@@ -36,24 +37,21 @@ public class EmailBridge {
         this.retriever = retriever;
     }
 
-    public static EmailBridge build(String username, String password, String url, boolean isPublicServer
+    public static EmailBridge build(String url, boolean isPublicServer
             , String smtpHost, int smtpPort
-            , String imapHost, int imapPort) throws Exception{
+            , String imapHost, int imapPort) {
         Crypto crypto = Builder.initCrypto();
         NetworkAccess network = null;
         try {
-            network = Builder.buildJavaNetworkAccess(new URL(url), isPublicServer).get();
+            network = Builder.buildJavaNetworkAccess(new URL(url), isPublicServer, Optional.empty()).get();
         } catch (Exception e) {
             throw new IllegalStateException("Unable to connect to Peergos instance");
         }
-
-        UserContext context = UserContext.signIn(username, password, Main::getMfaResponseCLI, network, crypto).get();
-
         SMTPMailer smtpMailer = new SMTPMailer(smtpHost, smtpPort);
-        EmailSender sender = new EmailSender(smtpMailer, context);
+        EmailSender sender = new EmailSender(smtpMailer, network, crypto);
         IMAPClient imapClient = new IMAPClient(imapHost, imapPort);
 
-        EmailRetriever retriever = new EmailRetriever(imapClient, context);
+        EmailRetriever retriever = new EmailRetriever(imapClient, network, crypto);
         return new EmailBridge(sender, retriever);
     }
 
@@ -64,7 +62,7 @@ public class EmailBridge {
                 return Collections.emptyMap();
             byte[] data = Files.readAllBytes(emailAccountsFilePath);
             List<Map<String, String>> props = (List<Map<String, String>>) JSONParser.parse(new String(data));
-            List<String> fields = Arrays.asList("username", "emailAddress", "smtpUsername", "smtpPassword", "imapUsername", "imapPassword");
+            List<String> fields = Arrays.asList("username", "secretLink", "emailAddress", "smtpUsername", "smtpPassword", "imapUsername", "imapPassword");
             for(Map<String, String> record : props) {
                 boolean isValid = true;
                 for (String field : fields) {
@@ -174,7 +172,6 @@ public class EmailBridge {
                 return;
             }
             running = true;
-            sender.refresh();
 
             Map<String, Map<String, String>> accounts = readEmailAccountFile(pathToAccountsFile);
             System.out.println(LocalDateTime.now() + " Running Task SendTask. Accounts: " + accounts.size());
@@ -182,8 +179,9 @@ public class EmailBridge {
             for (Map.Entry<String, Map<String, String>> entry : accounts.entrySet()) {
                 try {
                     Map<String, String> props = entry.getValue();
+                    SecretLink secretLink = SecretLink.fromLink(props.get("secretLink"));
                     if (sender.sendEmails(props.get("username"), props.get("emailAddress"),
-                            props.get("smtpUsername"), props.get("smtpPassword"))) {
+                            props.get("smtpUsername"), props.get("smtpPassword"), secretLink)) {
                         delayMs = defaultDelayOnFailureMs;
                     } else {
                         delayMs = backOff(delayMs);
@@ -225,8 +223,9 @@ public class EmailBridge {
                             + "." + Math.abs(random.nextInt(Integer.MAX_VALUE - 1)) + "@" + domain + ">";
                     Map<String, String> props = entry.getValue();
                     int maxNumberOfUnreadEmails = Integer.parseInt(config.getProperty("maxNumberOfUnreadEmails"));
+                    SecretLink secretLink = SecretLink.fromLink(props.get("secretLink"));
                     boolean ok = retriever.retrieveEmailsFromServer(props.get("username"), props.get("emailAddress"),
-                            messageIdSupplier, props.get("imapUsername"), props.get("imapPassword"), maxNumberOfUnreadEmails);
+                            messageIdSupplier, props.get("imapUsername"), props.get("imapPassword"), maxNumberOfUnreadEmails, secretLink);
                     if (ok) {
                         delayMs = defaultDelayOnFailureMs;
                     } else {

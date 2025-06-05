@@ -3,6 +3,7 @@ package peergos.email.tests;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.peergos.util.Pair;
 import org.simplejavamail.api.email.Email;
 import org.simplejavamail.email.EmailBuilder;
 import peergos.email.*;
@@ -17,22 +18,15 @@ import peergos.shared.email.Attachment;
 import peergos.shared.email.EmailClient;
 import peergos.shared.email.EmailMessage;
 import peergos.shared.user.*;
-import peergos.shared.user.fs.AsyncReader;
-import peergos.shared.user.fs.FileWrapper;
+import peergos.shared.user.fs.SecretLink;
 
-import javax.mail.MessagingException;
-import javax.mail.internet.MimeMessage;
-import java.io.ByteArrayOutputStream;
+import jakarta.mail.MessagingException;
+import jakarta.mail.internet.MimeMessage;
 import java.net.URL;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 import java.util.function.Supplier;
-import java.util.logging.Logger;
-import java.util.stream.Collectors;
 
 public class MockTest {
 
@@ -47,7 +41,7 @@ public class MockTest {
     private static final boolean isPublicServer = false;
 
     public MockTest() throws Exception{
-        network = Builder.buildJavaNetworkAccess(new URL(url), isPublicServer).get();
+        network = Builder.buildJavaNetworkAccess(new URL(url), isPublicServer, Optional.empty()).get();
         emailBridgeContext = PeergosNetworkUtils.ensureSignedUp(emailBridgeUsername, emailBridgePassword, network, crypto);
     }
 
@@ -71,18 +65,15 @@ public class MockTest {
         public abstract void retrieveEmails(String username, String password, Function<MimeMessage, Boolean> uploadFunc) throws MessagingException;
     }
 
-    private UserContext createNewEmailUser() {
+    private Pair<UserContext, SecretLink> createNewEmailUser() {
         String password = "notagoodone";
         UserContext userContext = PeergosNetworkUtils.ensureSignedUp("a-" + generateUsername(), password,
                 network, crypto);
 
         App emailApp = App.init(userContext, "email").join();
         EmailClient client = EmailClient.load(emailApp, crypto).join();
-        client.connectToBridge(userContext, emailBridgeContext.username).join();
-
-        emailBridgeContext.sendReplyFollowRequest(emailBridgeContext.processFollowRequests().join().get(0), true, true).join();
-        userContext.processFollowRequests().join();
-        return userContext;
+        SecretLink secretLink = client.connectToBridge(userContext).join();
+        return new Pair<>(userContext, secretLink);
     }
 
     protected String generateUsername() {
@@ -113,7 +104,8 @@ public class MockTest {
 
     @Test
     public void sendTest() {
-        UserContext userContext = createNewEmailUser();
+        Pair<UserContext, SecretLink> newUser = createNewEmailUser();
+        UserContext userContext = newUser.left;
         String attachmentContent = "hello!";
         byte[] attachmentData = attachmentContent.getBytes();
         RawAttachment rawAttachment = new RawAttachment("filename.txt", attachmentData.length,
@@ -131,10 +123,10 @@ public class MockTest {
                 sentEmail.add(true);
                 return true;
             }
-        }, emailBridgeContext);
+        }, network, crypto);
         String smtpUsername = "";
         String smtpPassword = "";
-        sender.sendEmails(userContext.username, userContext.username + "@example.com",smtpUsername, smtpPassword);
+        sender.sendEmails(userContext.username, userContext.username + "@example.com",smtpUsername, smtpPassword, newUser.right);
         Assert.assertTrue(sentEmail.size() > 0);
         App emailApp = App.init(userContext, "email").join();
         EmailClient client = EmailClient.load(emailApp, crypto).join();
@@ -149,7 +141,8 @@ public class MockTest {
 
     @Test
     public void receiveTest() {
-        UserContext userContext = createNewEmailUser();
+        Pair<UserContext, SecretLink> newUser = createNewEmailUser();
+        UserContext userContext = newUser.left;
         String attachmentContent = "hello!";
         byte[] attachmentData = attachmentContent.getBytes();
         String emailAddress = userContext.username + "@example.com";
@@ -171,9 +164,9 @@ public class MockTest {
                 System.out.println("in MockIMAPClient.retrieveEmails");
                 uploadFunc.apply(mimeMessage);
             }
-        }, emailBridgeContext);
+        }, network, crypto);
         retriever.retrieveEmailsFromServer(userContext.username, emailAddress, messageIdSupplier,
-                "imapUsername", "imapPwd", 100);
+                "imapUsername", "imapPwd", 100, newUser.right);
 
         App emailApp = App.init(userContext, "email").join();
         EmailClient client = EmailClient.load(emailApp, crypto).join();

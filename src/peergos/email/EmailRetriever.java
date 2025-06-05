@@ -1,14 +1,18 @@
 package peergos.email;
 
 import peergos.server.apps.email.EmailBridgeClient;
+import peergos.shared.Crypto;
+import peergos.shared.NetworkAccess;
 import peergos.shared.email.Attachment;
 import peergos.shared.email.EmailMessage;
 import peergos.shared.user.UserContext;
 import peergos.shared.user.fs.FileWrapper;
+import peergos.shared.user.fs.SecretLink;
+import peergos.shared.util.Futures;
 import peergos.shared.util.Pair;
 
-import javax.mail.MessagingException;
-import javax.mail.internet.MimeMessage;
+import jakarta.mail.MessagingException;
+import jakarta.mail.internet.MimeMessage;
 import java.util.*;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -16,22 +20,27 @@ import java.util.stream.Collectors;
 
 public class EmailRetriever extends EmailTask {
     private final IMAPClient imapClient;
-    private final UserContext context;
-    public EmailRetriever(IMAPClient imapClient, UserContext context) {
+    private final NetworkAccess network;
+    private final Crypto crypto;
+    public EmailRetriever(IMAPClient imapClient, NetworkAccess network, Crypto crypto) {
         this.imapClient = imapClient;
-        this.context = context;
+        this.network = network;
+        this.crypto = crypto;
     }
 
     public boolean retrieveEmailsFromServer(String peergosUsername, String emailAddress, Supplier<String> messageIdSupplier,
-                                            String imapUserame, String imapPassword, int maxNumberOfUnreadEmails) {
+                                            String imapUserame, String imapPassword, int maxNumberOfUnreadEmails, SecretLink secretLink) {
 
-        EmailBridgeClient bridge = buildEmailBridgeClient(context, peergosUsername, emailAddress);
+        EmailBridgeClient bridge = buildEmailBridgeClient(network, crypto, secretLink, peergosUsername, emailAddress);
         if (bridge == null) {
             return true;// user not setup yet
         }
-        String inboxPath = peergosUsername + "/.apps/email/data/default/pending/inbox";
-        FileWrapper directory = context.getByPath(inboxPath).join().get();
-        Set<FileWrapper> unreadEmails = directory.getChildren(context.crypto.hasher, context.network).join()
+        UserContext writableContext = UserContext.fromSecretLinkV2(secretLink.toLink(), () -> Futures.of(""),
+                network, crypto).join();
+        String pendingPath = writableContext.getEntryPath().join();
+        FileWrapper directory = writableContext.getByPath(pendingPath + "/" + "inbox").join().get();
+
+        Set<FileWrapper> unreadEmails = directory.getChildren(crypto.hasher, network).join()
                 .stream().filter(f -> !f.isDirectory()).collect(Collectors.toSet());
         if (unreadEmails.size() > maxNumberOfUnreadEmails) {
             System.err.println("Skipping user: " + peergosUsername + " due to excess unread emails");
